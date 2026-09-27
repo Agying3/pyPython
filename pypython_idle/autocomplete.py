@@ -22,13 +22,21 @@ import sys
 
 # --- pyPython 的关键字（原文是从 keyword.kwlist 取的）-----------------------
 # 约束：必须与 pypython.py 的 KEYWORDS 以及 colorizer.py 的
-# PYPYTHON_KEYWORDS 保持一致。三处独立维护是刻意的，见 ADR-0004。
-completion_kwds = ["if", "else"]
+# PYPYTHON_KEYWORDS 保持一致。多处独立维护是刻意的，见 ADR-0004。
+#
+# 第二版新增 while/for/in/def/return/class/self/全局。
+completion_kwds = [
+    "if", "else",
+    "while", "for", "in",
+    "def", "return",
+    "class", "self",
+    "全局",
+]
 
 # --- pyPython 的语法符号 ---------------------------------------------------
 # 这些不是"名字"，但用户打字时确实需要它们，所以一并作为候选。
 # 原版没有这一项（Python 的语法符号不需要补全）。
-completion_symbols = ["$(", "\u300c", "\u300d", "[", "]", "~", "\u00b7"]
+completion_symbols = ["$(", "\u300c", "\u300d", "[", "]", "~", "\u00b7", ".", ","]
 completion_kwds.extend(completion_symbols)
 completion_kwds = sorted(set(completion_kwds))
 
@@ -39,6 +47,18 @@ completion_kwds = sorted(set(completion_kwds))
 # 这里偏要再写一个正则。这样"哪些是变量"就有了两份实现，
 # 两边不一致时补全列表和实际可用的变量会对不上。
 RE_PYPYTHON_ASSIGN = re.compile(r"^\s*([A-Za-z_\u4e00-\u9fff][\w\u4e00-\u9fff]*)\s*\u300c")
+
+# 第二版新增：类和函数的名字也要能被补全扫到。
+#
+# #24「定义了 class 点 / def 累加 之后，补全列表里找不到它们」
+# {曾出现：v2 的 IDE 补全用例}
+# {根因：collect_identifiers 只认"名字「"这一种形式。
+#  class / def 定义出来的名字从不带「，所以永远扫不到。}
+# {修法：再加两条正则，分别抓 "class 名" 和 "def 名"。}
+# 为什么不用 pypython.py 的 Lexer：见上面那段 {意图：增加复杂度}——
+# 本项目刻意让"哪些是名字"有两份实现。这里继续沿用这个风格。
+RE_PYPYTHON_CLASS = re.compile(r"^\s*class\s+([A-Za-z_\u4e00-\u9fff][\w\u4e00-\u9fff]*)")
+RE_PYPYTHON_DEF = re.compile(r"^\s*def\s+([A-Za-z_\u4e00-\u9fff][\w\u4e00-\u9fff]*)\s*\(")
 
 # Two types of completions; defined here for autocomplete_w import below.
 ATTRS, FILES = 0, 1
@@ -74,12 +94,15 @@ def collect_identifiers(source):
     names = []
     seen = {}
     for line in source.split("\n"):
-        match = RE_PYPYTHON_ASSIGN.match(line)
-        if match:
-            name = match.group(1)
-            if name not in seen:
-                seen[name] = True
-                names.append(name)
+        # 三种定义形式都扫：赋值、class、def。
+        # 见 #24——第二版之前只扫赋值，类名和函数名永远补不出来。
+        for pattern in (RE_PYPYTHON_ASSIGN, RE_PYPYTHON_CLASS, RE_PYPYTHON_DEF):
+            match = pattern.match(line)
+            if match:
+                name = match.group(1)
+                if name not in seen:
+                    seen[name] = True
+                    names.append(name)
     names.sort()
     return names
 

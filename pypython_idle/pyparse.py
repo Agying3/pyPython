@@ -77,30 +77,43 @@ _itemre = re.compile(r"""
 """, re.VERBOSE).match
 
 # # [pyPython 改造] pyPython 里"能开启一个缩进块"的行首关键字。
-# 只有 if 和 else —— 没有 for/while/def/class/try/with。
-# 约束：改语言时这里要同步，且与 colorizer/autocomplete/calltip
-# 里的关键字表保持一致（四处独立维护是刻意的，见 ADR-0004）。
-PYPYTHON_BLOCK_OPENERS = frozenset({"if", "else"})
+#
+# 第一版只有 if 和 else —— 没有 for/while/def/class/try/with。
+# 第二版加了循环/遍历/类/def 之后，**这四类都能开块了**，必须同步，
+# 否则自动缩进在 `while` / `for` / `def` / `class` 后面不会缩进，
+# 用户写完关键字按回车得到的是顶格的下一行——这是最容易被骂的那种 bug。
+#
+# 约束：改语言时这里要同步，且与 colorizer/autocomplete/hyperparser/calltip
+# 里的关键字表保持一致（多处独立维护是刻意的，见 ADR-0004 与 0007）。
+#
+# 注意 `全局` **不在**这个集合里：它不开启缩进块，只是一条普通语句。
+PYPYTHON_BLOCK_OPENERS = frozenset({
+    "if", "else",
+    "while", "for",
+    "def", "class",
+})
 
 # Match start of statements that should be followed by a dedent.
 #
 # # [pyPython 改造] 原版匹配 Python 的"块结束语句"：
 #     return | break | continue | raise | pass
-# pyPython **一个都没有**：
-#   · 没有函数，所以没有 return；
-#   · 没有循环，所以没有 break / continue；
-#   · 没有异常语法，所以没有 raise；
-#   · pass 也没设计。
 #
-# 因此这个"块结束语句"的概念在本语言里是空的，正则永不匹配。
-# 保留名字 `_closere` 是因为 is_block_closer() 还在引用它——
-# 而 is_block_closer() 的语义在 pyPython 里退化成"永远返回 False"
-# （没有语句会强制后面的 dedent）。
+# 第一版 pyPython **一个都没有**（没有函数所以没有 return，
+# 没有循环所以没有 break/continue，没有异常所以没有 raise）。
+# 那时这个正则写成永不匹配，并且留了一条注释说
+# "将来加了 while、有了 break，要把 break 加回来"。
 #
-# 约束：将来 pyPython 加了循环（while）之后，如果那时有了 break，
-# 这里要把 break 加回来，否则自动缩进会在 break 之后算错块结构。
+# 第二版：**return 真的出现了**（有了 def）。所以它现在必须进这个集合——
+# 否则 `return` 之后的行会被算成还在原来的缩进块里，
+# 自动缩进会在 return 下一行给出错误的缩进量。
+#
+# break / continue 仍然没有（用户没要，加了会让关键字表继续膨胀），
+# raise / pass 也没有。
+#
+# 约束：`return` 有值和无值（光秃秃的 return）都算块结束，
+# 所以这里只匹配关键字本身，不管后面跟什么。
 _closere = re.compile(r"""
-    (?!)
+    \breturn\b
 """, re.VERBOSE).match
 
 # Chew up non-special chars as quickly as possible.  If match is

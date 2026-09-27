@@ -32,8 +32,9 @@ python pypython_idle_start.py examples\hello.pypy
 | 操作 | 效果 |
 |---|---|
 | **F5** | 运行编辑器里的全部代码,结果显示在输出面板(面板这时才出现) |
-| **Tab** | 补全变量名 / 关键字(`if` `else` `「` `」` `$(`) |
+| **Tab** | 补全变量名 / 关键字 / 类名 / 函数名(`if` `while` `for` `def` `class` `「` `」` `$(`) |
 | 打 `$(`, `「`, `"`, `[` | 弹出对应的 pyPython 语法卡片 |
+| 在 `while`/`for`/`def`/`class` 行尾按回车 | 自动缩进一层 |
 
 ## 语言速查
 
@@ -53,6 +54,50 @@ else
 中文「42」           变量名可以用中文
 $(中文)
 ```
+
+### 第二版新增:循环、遍历、函数、类
+
+```
+while i < 3        循环。没有 break / continue
+    i「i + 1」
+
+for v in [1, 2]    遍历。只能遍历列表和字符串,没有 range()
+    $(v)
+
+def 加(a, b)        函数。参数没有默认值
+    return a + b
+$(加(3, 4))         输出 7
+
+def 数到(n)          可以递归,但有深度上限(120 层)
+    if n < 1
+        return 0
+    return 数到(n - 1)
+
+class 点            类
+    def __init__(x, y)      构造器叫 __init__
+        self.x「x」           self 不用写进参数表
+    def 长度()               照 Python 习惯写 self 也行
+        return self.x + self.y
+p「点(1, 2)」        直接调类名就是建对象
+$(p.长度())          输出 3
+```
+
+**`return` 可以省略**(省略时返回 0)。**没有** `break` / `continue` / `try` /
+`lambda` / `import` / 继承。
+
+**作用域按 Python 来**:函数里赋值默认建**局部**变量(所以递归正常),
+想改全局要显式声明:
+
+```
+g「1」
+def 改()
+    全局 g「999」
+改()
+$(g)               输出 999
+```
+
+改语言之前**必读** `docs/decisions/0007` ——
+关键字表在 8 个地方各有一份,漏改一处不会报错,只会静默失效。
 
 **注意**:`~` 和 `·` 在同一个键上。打反了**不会报错**(两个都是合法运算符),
 只会算错。这是已知设计,见 `docs/decisions/0002`。
@@ -105,7 +150,8 @@ pypython_idle/           源码改造版 IDE(60 个模块从 idlelib 抓来改�
   upstream-docs/           (无此目录)上游文档必须留在包根,见下
 pypython_ide.py          运行时代理版 IDE
 interpreter.py           早期的正经计算器解释器(已搁置)
-examples/hello.pypy      可运行示例
+examples/hello.pypy      可运行示例(含第二版全部新语法)
+tests/                   回归测试,`python tests/run_all.py` 一把跑完
 docs/decisions/          架构决策记录
 ```
 
@@ -117,13 +163,22 @@ docs/decisions/          架构决策记录
 
 改这个 IDE 之前建议先读 `docs/decisions/`:
 
+- **0002** 语言为什么长这样(语法简化,实现不简化)
 - **0004** IDE 为什么寄生 IDLE 而不是手搓,以及 `#I1`–`#I26` 问题记录
 - **0005** 两版为什么并存,以及改造踩过的坑
+- **0007** 第二版语言构造(while/for/def/class),以及 6 份关键字副本的同步清单
 
 其中最重要的一条经验:改这个代码库时,**"看起来该改的名字"常常不是真正被读的那个**。
-已经栽过 7 次(`make_pat` / 模块级 `prog` / `FileList.EditorWindow` /
-`_windowlist` / `trans` 表 / `_chew_ordinaryre` / Help 用的 `help.html`),
+已经栽过 8 次(`make_pat` / 模块级 `prog` / `FileList.EditorWindow` /
+`_windowlist` / `trans` 表 / `_chew_ordinaryre` / Help 用的 `help.html` /
+`RE_IDENT` 与扫描器不一致),
 每次都不报错。**读源码找真正的读取点,不要猜。**
 
 第二条经验:**验收必须覆盖所有入口路径**。曾经只测"新建窗口"就宣布完成,
 而"打开文件"那条路的高亮整个是坏的 —— 那是用户最常用的路径。
+
+第三条经验:**API 反复测不出预期时,先怀疑自己的调用姿势**。
+第二版开发中 `is_block_opener()` 连试三种参数都返回 `False`(连 `if` 都是),
+看着像产品坏了,实际是测试喂错了 offset。改用真实编辑器端到端验证后立刻通过。
+另外还有三处"失败"其实是测试自己写错了(构造器少一个下划线等)。
+**报告失败之前,先确认测试测的是不是你以为的那件事。**

@@ -28,9 +28,20 @@ DEBUG = False
 # 映射表。两份数据独立维护，语言改了要同步改两处（这是刻意的取舍，
 # 已在 docs/decisions/0004 中记录）。
 
-# pyPython 的关键字：只有两个。
+# pyPython 的关键字。
 # 约束：必须与 pypython.py 的 KEYWORDS 保持一致。
-PYPYTHON_KEYWORDS = ["if", "else"]
+#
+# 第二版（循环/遍历/类/def）新增了 while / for / in / def / return /
+# class / self / 全局，这里必须同步——否则新关键字在编辑器里
+# 不会高亮，用户看不出自己写对没有。**这是第 6 处独立维护的拷贝**，
+# 见 ADR-0004 与 ADR-0007 里"两份数据源"的说明。
+PYPYTHON_KEYWORDS = [
+    "if", "else",
+    "while", "for", "in",
+    "def", "return",
+    "class", "self",
+    "全局",
+]
 
 # pyPython 没有内置函数，也没有类。这个列表**刻意留空**——
 # 留空意味着 IDLE 不会再给 print/len/range 上色，

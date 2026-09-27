@@ -15,9 +15,17 @@ from . import pyparse
 
 # pyPython 的关键字。
 # 约束：必须与 pypython.py 的 KEYWORDS、colorizer.py 的 PYPYTHON_KEYWORDS、
-# autocomplete.py 的 completion_kwds 保持一致。四处独立维护是刻意的取舍，
-# 见 docs/decisions/0004。
-PYPYTHON_KEYWORDS = frozenset({"if", "else"})
+# autocomplete.py 的 completion_kwds 保持一致。多处独立维护是刻意的取舍，
+# 见 docs/decisions/0004 与 0007。
+#
+# 第二版新增 while/for/in/def/return/class/self/全局。
+PYPYTHON_KEYWORDS = frozenset({
+    "if", "else",
+    "while", "for", "in",
+    "def", "return",
+    "class", "self",
+    "全局",
+})
 
 # all ASCII chars that may be in an identifier
 _ASCII_ID_CHARS = frozenset(string.ascii_letters + string.digits + "_")

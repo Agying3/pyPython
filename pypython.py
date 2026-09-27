@@ -257,7 +257,20 @@ RE_IDENT = re.compile(r"^[^\W\d]\w*$", re.UNICODE)
 # 现状：花括号 { } 与分号 ; 已被移除——新语法用缩进断句，不再需要它们。
 # 但保留识别能力会让"旧写法"静默通过，所以这里也不认它们，写错就报错。
 # 新增：「」 $ ~ · 四个符号，对应赋值括号、输出、等于、不等于。
-RE_SYMBOL = re.compile(r"^[()「」$+\*/<>~·!\[\],-]+$")
+RE_SYMBOL = re.compile(r"^[()「」$+\*/<>~·!\[\],.-]+$")
+
+# 能开启一条新语句的 token 类型。
+#
+# 约束：这个集合在本文件里被三处引用（Parser._statement、
+# Parser._starts_statement、以及别的判断"下一 token 能否接语句"的地方）。
+# 原先每处都各写一份 `env.kind == "KW_IF"` 这样的判断，加关键字时
+# 极易漏改其中一处——#14 就是这么来的。
+# 现在统一到这里，改一处即可。新增关键字时**必须**同时想清楚：
+# 它能不能在缩进块的末尾开启新语句。
+STATEMENT_KEYWORDS = frozenset({
+    "KW_IF", "KW_WHILE", "KW_FOR", "KW_DEF",
+    "KW_RETURN", "KW_CLASS", "KW_GLOBAL",
+})
 
 # 数字 → 二进制串 的转换表（用于输出阶段，见层 7）
 _HEX_DIGITS = "0123456789abcdef"
@@ -452,6 +465,123 @@ TRUTH_LATTICE = ["FALSE", "HOPELESS", "MAYBE", "TRUE"]
 TRUTH_TO_INT = [0, 1, 2, 3]  # 与 TRUTH_LATTICE 下标对应
 
 
+class ObjectTable:
+    """函数/类/实例的旁路登记表。
+
+    {意图：增加复杂度} —— 这是"值必须能编码成字符串"这条规则的后门。
+    数字/字符串/列表能真的序列化成文本，但这三样内部装着 AST 节点和
+    Python 对象，序列化不动。于是：把对象登记进这个表、拿一个编号，
+    在 Registry 里存的其实是编号字符串。
+
+    约束：只增不减。没有 free、没有引用计数、没有清理。
+    每定义一个函数、每个类、每个 new 出来的实例都会永久占一个槽位。
+    这是刻意的——一个真的会泄漏的表，才配得上这个项目。
+    """
+
+    def __init__(self):
+        self._slots = []
+
+    def put(self, obj) -> int:
+        """登记一个对象，返回它的编号。"""
+        self._slots.append(obj)
+        return len(self._slots) - 1
+
+    def get(self, slot: int):
+        """按编号取回。取不到返回 None（调用方负责抛异常）。"""
+        if 0 <= slot < len(self._slots):
+            return self._slots[slot]
+        return None
+
+    def size(self) -> int:
+        return len(self._slots)
+
+
+# 全局唯一的登记表。注意它是**模块级**的，所以同一个进程里跑多次
+# evaluate_source 都会往同一张表里追加——编号不会重置。
+OBJECT_TABLE = ObjectTable()
+
+
+class PyPyFunction:
+    """用户定义的函数。装的是 AST，不是编译结果。
+
+    {意图：增加复杂度} —— 定义时不做任何编译、不做任何检查，
+    只把参数名和函数体存起来。每次调用都要重新遍历一遍函数体 AST，
+    每次调用都要重新在作用域里逐个绑定参数。
+    真语言会编译一次、执行多次；这里坚持每次都从头解释。
+    """
+
+    def __init__(self, name, params, body):
+        self.name = name
+        self.params = params
+        self.body = body
+        self.call_count = 0
+
+    def describe(self) -> str:
+        return "<函数 " + self.name + "/" + str(len(self.params)) + ">"
+
+
+class PyPyClass:
+    """用户定义的类。存方法名到 PyPyFunction 的映射，和类属性。
+
+    约束：没有继承、没有 super、没有元类。
+    """
+
+    def __init__(self, name):
+        self.name = name
+        self.methods = {}   # 方法名 -> PyPyFunction
+        self.attrs = {}     # 类属性名 -> PyPyValue（编码前的原值）
+
+    def describe(self) -> str:
+        return "<类 " + self.name + ">"
+
+
+class ReturnSignal(Exception):
+    """return 语句的载体。
+
+    {意图：增加复杂度} —— 用异常做函数返回。见 Interpreter._do_return。
+
+    约束：它**不是**错误。任何 except 子句接住它之前必须想清楚
+    是不是在函数调用边界上；接错了会把 return 吞掉，函数会继续往下跑。
+    """
+
+    def __init__(self, value):
+        Exception.__init__(self, "return")
+        self.value = value
+
+
+def dirty_attribute_message(instance, name):
+    """实例上没有这个属性时，给一个尽量有用的报错。
+
+    {意图：增加复杂度} —— 专门为"忘了写 self"这个最常见的错误
+    做一个提示：如果这个名字在实例属性的集合里存在、
+    只是当前这个实例没有，那多半是构造器里漏赋值了。
+    """
+    available = []
+    for key in instance.attrs:
+        available.append(key)
+    for key in instance.klass.attrs:
+        if key not in instance.attrs:
+            available.append(key)
+    preview = ", ".join(available[:6]) if available else "（一个都没有）"
+    return ("实例上没有属性 " + repr(name) + "；现在有这些：" + preview)
+
+
+class PyPyInstance:
+    """类的实例。
+
+    {意图：增加复杂度} —— 每次取属性都要先查实例自己的 attrs、
+    查不到再查类的 attrs、还不是的话去找方法。三段查找，
+    而且**每次**都要重新做一遍，没有任何缓存。
+    """
+
+    def __init__(self, klass):
+        self.klass = klass
+        self.attrs = {}     # 实例属性名 -> PyPyValue
+
+    def describe(self) -> str:
+        return "<" + self.klass.name + " 的实例>"
+
+
 class PyPyValue:
     """pyPython 的值。包一个 Python 数字，但拒绝直接暴露它。
 
@@ -524,6 +654,26 @@ class PyPyValue:
                 pieces.append(item.encode())
             joined = ",".join(pieces)
             return "L" + str(len(raw)) + ":" + joined
+
+        # --- 函数 / 类 / 实例 -------------------------------------------------
+        #
+        # 约束：这三样东西内部装着 AST 节点和 Python 对象，没法像数字那样
+        # 直接序列化成文本。但"任何值都必须能存进 Registry"这条规则不能破，
+        # 于是走一个**旁路登记表** OBJECT_TABLE：
+        #   encode 时把对象登记进去、拿回一个编号，返回 "F<编号>" / "C<编号>" / "O<编号>"。
+        #   decode 时按编号取回来。
+        #
+        # {意图：增加复杂度} —— 这等于绕过编码层又开了一个后门，
+        # 而且登记表**只增不减**（没有任何地方清理它），
+        # 所以每创建一个函数/类/实例都会永久占一个槽位。
+        # 名字查找仍然要走完整的 Registry 字符串往返，只是"值"变成了一串编号。
+        if isinstance(raw, PyPyFunction):
+            return "F" + str(OBJECT_TABLE.put(raw))
+        if isinstance(raw, PyPyClass):
+            return "C" + str(OBJECT_TABLE.put(raw))
+        if isinstance(raw, PyPyInstance):
+            return "O" + str(OBJECT_TABLE.put(raw))
+
         value = self.decoded()
         if value == int(value):
             return "N:" + str(int(value))
@@ -562,6 +712,17 @@ class PyPyValue:
                         items.append(element)
                         cursor = cursor + consumed
                     return PyPyValue(items)
+
+        # --- 函数 / 类 / 实例：从旁路登记表按编号取回 -------------------------
+        # 约束：编号必须存在。取不到就抛，**不返回 0**——#12/#13 的教训。
+        if blob[:1] in ("F", "C", "O"):
+            slot = blob[1:]
+            if slot.isdigit():
+                fetched = OBJECT_TABLE.get(int(slot))
+                if fetched is None:
+                    raise ValueError("登记表里没有编号 " + repr(slot)
+                                     + "（OBJECT_TABLE 被清空过？）")
+                return PyPyValue(fetched)
 
         # --- 数字 --------------------------------------------------------------
         RE_NUMBER = re.compile(r"^N:(-?[0-9]+(?:\.[0-9]+)?)$")
@@ -665,12 +826,36 @@ TOKEN_SPEC = {
 # pyPython 保留字 → token 类型。
 #
 # {意图：降低可读性 -> 已按用户要求反转为"语法尽量简单"}
-# 旧版有 manifest/will/be/yield 四个关键字组成三阶段变量，现已全部删除，
-# 只剩 if / else。语法简单了，但**底层一点没简单**——赋值照样要走
+# 旧版有 manifest/will/be/yield 四个关键字组成三阶段变量，现已全部删除。
+# 语法简单了，但**底层一点没简单**——赋值照样要走
 # Registry 的字符串往返，输出的照样是真值密室 + 手写二进制。
+#
+# 第一版只有 if / else。第二版（循环、遍历、类、def）新增：
+#
+#   while   循环          while x < 10
+#   for in  遍历          for i in [1, 2, 3]
+#   def     函数定义       def 加(a, b)
+#   return  函数返回       return a + b
+#   class   类定义         class 点
+#   self    方法里的自身    self.x
+#   全局    显式写全局变量   全局 x「999」
+#
+# 约束：'for' 和 'in' 是两个独立关键字，都要进表，否则 `for i in xs` 里
+# 的 in 会被当成普通标识符（它是合法变量名），解析就不报错但语义全错。
 KEYWORDS = {
     "if": "KW_IF",
     "else": "KW_ELSE",
+    "while": "KW_WHILE",
+    "for": "KW_FOR",
+    "in": "KW_IN",
+    "def": "KW_DEF",
+    "return": "KW_RETURN",
+    "class": "KW_CLASS",
+    "self": "KW_SELF",
+    # 中文关键字。本语言的符号层已经是全角的（「」$~·），
+    # 作用域声明用中文反而比造一个生僻英文词更好打。
+    # 用户定的是 Python 模式：函数内赋值默认是局部的，想改全局要显式声明。
+    "全局": "KW_GLOBAL",
 }
 
 # 单字符符号集合。
@@ -687,7 +872,7 @@ KEYWORDS = {
 #   > <  照旧
 #   + - * / ( ) 算术与分组
 # 约束：'.' 只当小数点，**不**当比较符（用户明确否决了兼容写法）。
-SINGLE_SYMBOLS = "()+-*/<>~·「」$[],"
+SINGLE_SYMBOLS = "()+-*/<>~·「」$[],."
 
 
 class TokenEnvelope:
@@ -868,7 +1053,13 @@ class Lexer:
                 at_line_start = False
                 width = self._measure_indent()
                 if width is None:
-                    # 空行或纯注释行，直接跳过，不产生任何缩进 token
+                    # 空行或纯注释行，不产生缩进 token，也不产出 DEDENT。
+                    #
+                    # 约束：**不要在这里动 at_line_start**。
+                    # 本方法只吃到换行符之前，换行符仍在输入流里，
+                    # 下一次循环会进 `if char in "\r\n"` 分支，
+                    # 由那里统一产出 NEWLINE 并置回 at_line_start。
+                    # 见 _measure_indent 里的 #23。
                     continue
                 current = indent_stack[len(indent_stack) - 1]
                 if width > current:
@@ -1059,10 +1250,38 @@ class Lexer:
             scan = scan + 1
         # 扫到行尾或注释，说明这一行没有实际内容
         if scan >= len(self.source) or self.source[scan] in "\r\n#":
-            # 把这一行吃掉（含注释），让主循环继续往下走
+            # 把这一行吃掉（含注释），但**留下行尾的换行符**。
+            #
+            # #23「空行会让整段缩进比较被跳过，DEDENT 全丢，
+            #      块永远不结束，第二个顶层 def 被当成还在 class 体内」
+            # {曾出现：`class 点 / def __init__ / self.x「x」 / <空行> / def 累加`
+            #  报"这里需要一个缩进的语句块"。}
+            #
+            # {根因（插桩实测，不是猜）：原版这里把**行尾的换行符也吃掉了**。
+            #  而调用方在进入本方法之前已经把 at_line_start 置成了 False，
+            #  把 at_line_start 置回 True 的代码**只在主循环的
+            #  `if char in "\r\n"` 分支里**。换行符被本方法吃掉，
+            #  那个分支就永远不执行 —— 于是空行的下一行被当成"行中间"，
+            #  **整个缩进比较被跳过，一个 DEDENT 都不产出**。
+            #
+            #  实测 token 流：line 5 的 `def 累加` 前面一个 DEDENT 都没有
+            #  （缩进栈是 [0,4,8]，本该退两层）。
+            #  更隐蔽的是：下一次 _measure_indent 量到的是再下一行
+            #  （`return 1`，宽度 4），所以错得"看起来还挺合理"。}
+            #
+            # {为什么第一版没暴露：能开块的只有 if，else 紧跟块尾、
+            #  中间不放空行，这条路径几乎走不到。加了 def/class 之后，
+            #  "顶层语句之间空一行"成了最常见的排版习惯，立刻就踩到了。}
+            #
+            # {修法：本方法只吃到**换行符之前**为止，把换行符留给主循环。
+            #  这样主循环照常产出 NEWLINE、照常把 at_line_start 置回 True，
+            #  下一行的缩进比较就正常执行了。}
+            # **已验证**（_tmp_ord.py 的 token 流前后对比）。
+            #
+            # 实现：吃掉这一行的内容（含注释），但**停在换行符前面**，
+            # 把换行符留给主循环去处理——主循环会产出 NEWLINE
+            # 并把 at_line_start 置回 True。这两件事缺一不可。
             while self.pos < len(self.source) and self._peek() != "\n":
-                self._take()
-            if self.pos < len(self.source):
                 self._take()
             return None
         raw_width = scan - self.pos
@@ -1308,6 +1527,171 @@ class IfStmt(Node):
         self.else_body = else_body
 
 
+# ---- 第二版新增节点：循环 / 遍历 / 函数 / 类 -------------------------------------
+#
+# {意图：增加复杂度} —— 这一组节点每个都**只要一个字段**是真正必要的，
+# 但它们照样继承 Node，于是每个语句每次执行都要多一次 reify（拼一次
+# "类名@行:列" 字符串）。这是 11 层装饰性优先级之后又一批"每次访问都留下痕迹"。
+
+
+class WhileStmt(Node):
+    """while 循环：`while 条件 <块>`
+
+    约束：本语言的「」已经是赋值括号，不能再用作块定界，所以循环体
+    仍然靠缩进——和 if 完全一样，复用同一个 _block()。
+    """
+
+    def __init__(self, cond, body, line, column):
+        Node.__init__(self, line, column)
+        self.cond = cond
+        self.body = body
+
+
+class ForStmt(Node):
+    """遍历语句：`for 变量 in 可遍历的东西 <块>`
+
+    {意图：增加复杂度} —— 只支持遍历列表（以及字符串，按字符逐个走）。
+    没有 range()，没有迭代器协议，没有生成器——用户想要序列就自己写列表。
+    """
+
+    def __init__(self, name, iterable, body, line, column):
+        Node.__init__(self, line, column)
+        self.name = name
+        self.iterable = iterable
+        self.body = body
+
+
+class ReturnStmt(Node):
+    """函数返回：`return 表达式`（表达式可省略，省略时返回 0）
+
+    {意图：增加复杂度} —— 返回不直接跳出去，而是抛一个 Python 异常
+    ReturnSignal，由函数调用处接住。用异常做控制流是刻意的绕路：
+    正常的语言会用一个返回标记，这里选择让调用栈真的展开一次。
+    """
+
+    def __init__(self, expr, line, column):
+        Node.__init__(self, line, column)
+        self.expr = expr
+
+
+class DefStmt(Node):
+    """函数定义：`def 名字(参数, ...) <块>`
+
+    {意图：增加复杂度} —— 定义函数时不立即执行函数体，只把 AST 存起来
+    （而且存之前还要 encode 成字符串塞进 Registry，见 Interpreter._do_def）。
+    调用时才 decode 回来——同一个函数体每次调用都要经历一次编码/解码往返。
+    """
+
+    def __init__(self, name, params, body, line, column):
+        Node.__init__(self, line, column)
+        self.name = name
+        self.params = params
+        self.body = body
+
+
+class ClassStmt(Node):
+    """类定义：`class 名字 <块>`
+
+    约束：块里只认 `def` 语句（都当方法），以及普通赋值语句（当类属性）。
+    没有继承，没有多态，没有 super——用户要的都是"能跑就行"。
+    """
+
+    def __init__(self, name, body, line, column):
+        Node.__init__(self, line, column)
+        self.name = name
+        self.body = body
+
+
+class AttrNode(Node):
+    """属性访问：`对象.属性`
+
+    {意图：增加复杂度} —— 本语言的 '.' 原本**只当小数点**（用户明确否决过
+    把 '.' 当比较符）。这里给 '.' 增加第三种含义（属性访问），
+    于是词法层要判断"这个点是小数点还是属性点"，多一条歧义分支。
+
+    消歧规则：点号**紧跟在标识符右括号之后**、且后面也是标识符时算属性访问；
+    其余情况仍然是小数点（如 1.5）。见 Lexer._scan_number 与 _scan_symbol。
+    """
+
+    def __init__(self, target, name, line, column):
+        Node.__init__(self, line, column)
+        self.target = target
+        self.name = name
+
+
+class GlobalStmt(Node):
+    """作用域声明：`全局 名字`
+
+    用户定的是 Python 模式：函数内赋值默认**创建局部**变量，
+    想改全局必须显式声明。这个语句本身不做任何事，
+    它只是往当前调用帧的 global_names 集合里记一笔——
+    真正的效果发生在后续 AssignStmt 碰到这个名字的时候。
+    """
+
+    def __init__(self, name, line, column):
+        Node.__init__(self, line, column)
+        self.name = name
+
+
+class CallNode2(Node):
+    """新语法的函数/方法调用：`名字(参数, ...)` 或 `对象.方法(参数)`。
+
+    {意图：增加复杂度} —— 为什么叫 CallNode2 而不叫 CallNode？
+    因为本文件里**已经有一个 CallNode**（旧版波兰表达式留下的死代码），
+    那个类至今还挂在 Interpreter 的 isinstance 分支上没人删。
+    按"能跑的别删"的项目精神，我没有删旧的、也没有改它的名字，
+    而是多造了一个类——于是解释器里就有了两个长得很像、
+    但语义完全不同的"调用"节点。这是刻意的混乱。
+    """
+
+    def __init__(self, callee, args, line, column):
+        Node.__init__(self, line, column)
+        self.callee = callee
+        self.args = args
+
+
+class AttrAssignStmt(Node):
+    """属性赋值：`self.x「表达式」`。
+
+    {意图：增加复杂度} —— 语法上和普通赋值长得几乎一样，
+    但走的是完全不同的运行路径：普通赋值写 Registry（字符串往返），
+    属性赋值直接改实例上的 Python dict，**不进 Registry**。
+    两个几乎同形的语句，背后是两套存储。
+    """
+
+    def __init__(self, target, expr, line, column):
+        Node.__init__(self, line, column)
+        self.target = target
+        self.expr = expr
+
+
+class ExprStmt(Node):
+    """调用语句：`名字(参数)` 单独成行，算完把结果扔掉。
+
+    {意图：增加复杂度} —— 本语言原本不存在"没有效果的语句"，
+    每个语句都必须留下痕迹（赋值 / 输出 / 条件）。
+    这是唯一的例外：求值之后结果直接丢弃。
+    """
+
+    def __init__(self, expr, line, column):
+        Node.__init__(self, line, column)
+        self.expr = expr
+
+
+class BlockStmt(Node):
+    """把若干条语句打包成一条。
+
+    {意图：增加复杂度} —— 纯粹为了让 `全局 g「999」` 这种
+    "一条语法、两条语句"的写法能被 _execute 处理。
+    其实完全可以在解析时直接返回一个列表、由上层展开，
+    但那样就少了一层节点、少一次 reify、少一次 isinstance 分派。
+    """
+
+    def __init__(self, statements, line, column):
+        Node.__init__(self, line, column)
+        self.statements = statements
+
+
 class ParseError(Exception):
     def __init__(self, message, line, column, source_line=""):
         super().__init__(message)
@@ -1529,9 +1913,14 @@ class Parser:
 
         {意图：增加复杂度} —— 这个判断其实一行就能写，
         这里拆成独立的、带 docstring 的方法，就为了在调用栈上多一帧。
+
+        约束：这是 #14 提到的"三份拷贝"里的第三份。它管的是**操作数**开头，
+        和语句开头不是一回事，但 `self` 既是关键字又能当操作数（`self.x`），
+        所以这里必须认出 KW_SELF，否则 `$(self.x)` 会在并排相乘的
+        "后面还跟不跟操作数"判断上做错决定。
         """
         env = self._cur()
-        if env.kind in ("NUMBER", "IDENT"):
+        if env.kind in ("NUMBER", "IDENT", "KW_SELF"):
             return True
         if env.kind == "SYMBOL" and env.lexeme == "(":
             return True
@@ -1611,7 +2000,92 @@ class Parser:
 
         {意图：增加复杂度} —— 现在是普通的中缀括号，
         `(a + b) 2` 里的括号既用于分组，也用于开启"并排相乘"。
+
+        第二版：原子解析完之后，还要再过一遍 _postfix，处理
+        `名字(...)` 调用 和 `对象.属性`。这两者可以串起来，
+        所以必须放在同一层向后循环，不能各写各的。
         """
+        return self._postfix()
+
+    def _postfix(self):
+        """后缀运算：函数调用 `名字(参数)`、属性访问 `对象.属性`。
+
+        {意图：增加复杂度} —— 这是本语言唯一的"左递归"结构，
+        和 11 层装饰性优先级链是两套完全独立的东西。
+        它**真的重要**（不像那 11 层），但也要记同样多的账。
+
+        约束：`.` 有两义。`1.5` 里的点在词法层已经被吃进 NUMBER，
+        所以到这里遇见 SYMBOL '.' 一定是属性访问。见 AttrNode 的说明。
+
+        #15「`$(self.x)` 里 self 是关键字，最初 _atom 只认 IDENT，
+             于是报"期待一个表达式，却遇到 'self'"」
+        {根因：把 self 当成了纯关键字，没意识到它同时也是个普通值}
+        {修法：_atom 里接受 KW_SELF，转成名字为 "self" 的 IdentNode。
+         这样作用域、属性访问、参数传递全都不用为 self 开特例。}
+        **已验证**。
+        """
+        return self._postfix_tail(self._atom_base())
+
+    def _postfix_tail(self, node):
+        """后缀循环本体：在已有原子后面接 '(' 调用 或 '.' 属性。
+
+        约束：抽成独立方法是为了让"调用语句"那条路（_finish_expr_statement）
+        能复用它——那里已经手工解析出了第一个标识符，不需要再过 _atom_base。
+        """
+        while True:
+            env = self._cur()
+
+            # --- 函数调用：名字(参数, ...) ---
+            if env.kind == "SYMBOL" and env.lexeme == "(":
+                # 只有"可以被调用的东西"后面才跟调用括号：
+                # 标识符、属性访问、self。其它情况下的 '(' 是分组，
+                # 交给上层 _juxtapose 去处理并排相乘。
+                if not isinstance(node, (IdentNode, AttrNode)):
+                    break
+                self._bump()
+                self.book.mint("解析:调用开括号")
+                args = []
+                if not (self._is("SYMBOL") and self._cur().lexeme == ")"):
+                    while True:
+                        args.append(self._l11())
+                        if self._is("SYMBOL") and self._cur().lexeme == ",":
+                            self._bump()
+                            continue
+                        break
+                if not (self._is("SYMBOL") and self._cur().lexeme == ")"):
+                    self._fail("调用缺少收尾的 ')'")
+                self._bump()
+                self.book.mint("解析:调用闭括号")
+                node = CallNode2(node, args, node.line, node.column)
+                node.reify()
+                self.last_atom_was_paren = False
+                continue
+
+            # --- 属性访问：对象.属性 ---
+            if env.kind == "SYMBOL" and env.lexeme == ".":
+                self._bump()
+                self.book.mint("解析:属性点")
+                name_env = self._cur()
+                if name_env.kind == "KW_SELF":
+                    # `a.self` 没意义，但也不用专门报错——当成普通名字处理，
+                    # 反正运行时找不到这个属性，报错信息更贴近用户看到的写法。
+                    self._bump()
+                    attr_name = name_env.lexeme
+                elif name_env.kind == "IDENT":
+                    self._bump()
+                    attr_name = name_env.lexeme
+                else:
+                    self._fail("属性点 '.' 之后期待属性名，却遇到 "
+                               + repr(name_env.lexeme))
+                node = AttrNode(node, attr_name, node.line, node.column)
+                node.reify()
+                self.last_atom_was_paren = False
+                continue
+
+            return node
+
+    def _atom_base(self):
+        """真正的原子：数字、标识符、self、字符串、列表、括号。"""
         env = self._cur()
 
         if env.kind == "NUMBER":
@@ -1627,6 +2101,15 @@ class Parser:
             node = IdentNode(env.lexeme, env.line, env.column)
             node.reify()
             self.book.mint("解析:标识符节点")
+            self.last_atom_was_paren = False
+            return node
+
+        if env.kind == "KW_SELF":
+            # self 当成一个普通标识符来用。见 _postfix 的 #15 注释。
+            self._bump()
+            node = IdentNode(env.lexeme, env.line, env.column)
+            node.reify()
+            self.book.mint("解析:self 节点")
             self.last_atom_was_paren = False
             return node
 
@@ -1760,13 +2243,26 @@ class Parser:
         {意图：增加复杂度} —— 这个判断在本文件里出现了三次
         （这里、_statement、_starts_operand），每次都各写一份，
         因为"统一成一个函数"会少两次调用，那不符合本项目精神。
+
+        约束（#14 的教训）：三份拷贝必须**同时**跟着 STATEMENT_KEYWORDS 走。
+        加新关键字时只改 _statement 那一份，就会出现"语句开头认不出来、
+        但真去解析又能解析"的怪现象，报错信息还会指向错误的方向。
         """
         env = self._cur()
-        if env.kind in ("KW_IF", "IDENT"):
+        if env.kind in STATEMENT_KEYWORDS or env.kind == "IDENT":
             return True
         if env.kind == "SYMBOL" and env.lexeme == "$":
             return True
         return False
+
+    def _at_statement_end(self):
+        """当前 token 是不是"这条语句到此为止"。
+
+        用于 return 这种"尾巴可以省略"的语句：`return` 后面直接换行
+        也算合法，此时返回默认值。
+        """
+        return (self._is("NEWLINE") or self._is("EOF")
+                or self._is("DEDENT"))
 
     def _block(self):
         """缩进块：INDENT 语句* DEDENT。
@@ -1777,7 +2273,19 @@ class Parser:
         （反转是无意义的，纯粹消耗时间）。
         """
         if not self._is("INDENT"):
-            self._fail("这里需要一个缩进的语句块（if 后面必须跟缩进）")
+            # #22「`全局「0」` 报"这里需要一个缩进的语句块（if 后面必须跟缩进）"，
+            #      而实际错误跟 if 毫无关系」
+            # {曾出现：v2 的 IDE 端到端用例，用户在函数外写了 `全局「0」`}
+            # {根因：这条信息是加 while/for/def/class **之前**写的，
+            #  那时能开块的只有 if，所以直接写死了 "if 后面"。
+            #  现在有五种能开块的关键字，而且用户真正写错的往往不是块本身。}
+            # {修法：信息里不再提具体的 if，改成中性说法并列出所有能开块的关键字。}
+            # **已验证**。
+            self._fail(
+                "这里需要一个缩进的语句块。"
+                "能开块的是 if / else / while / for / def / class，"
+                "它们后面必须跟一层缩进。"
+            )
         self._bump()
         body = []
         while not self._is("DEDENT") and not self._is("EOF"):
@@ -1803,30 +2311,252 @@ class Parser:
 
         {意图：增加复杂度} —— 每个语句形式都要经过一个独立的、只有一行的
         分派函数。这是为了在调用栈上多留几帧。
+
+        #14「加了 while/for/def/class 之后，_starts_statement 没跟着改，
+             于是 `while x < 3` 后面跟一行 `    while ...` 时，
+             _want_newline 认不出新语句开头，一律报"语句结尾期待换行"」
+        {根因：判断"什么 token 能开启语句"的逻辑在本文件里有三份拷贝
+         （_statement、_starts_statement、_starts_operand），加关键字时
+         只改了 _statement 这一份，另外两份没动。}
+        {修法：三份全部同步；并且把"能开启语句的关键字"抽成一个模块级常量
+         STATEMENT_KEYWORDS，让三处引用同一个来源，减少再次漂移的机会。}
+        **已验证**（回归里的"嵌套 while"与"for 里再嵌 for"用例）。
         """
         env = self._cur()
 
-        if env.kind == "KW_IF":
-            return self._stmt_if()
-        if env.kind == "IDENT":
-            return self._stmt_assign()
+        if env.kind in STATEMENT_KEYWORDS:
+            return self._stmt_keyword(env.kind)
         if env.kind == "SYMBOL" and env.lexeme == "$":
             return self._stmt_print()
+        # 第二版：`self.x「1」`（属性赋值）和 `名字(...)`（调用语句）
+        # 都以 IDENT 或 self 开头，交给 _stmt_assign 统一处理——
+        # 它内部会看左边到底解析成了标识符还是属性，再决定走哪条路。
+        #
+        # #16「`打招呼()` 单独成行报"变量 '打招呼' 之后期待 '「'"」
+        # {曾出现：v2 首测的"def 无返回值"用例}
+        # {根因：_statement 把 IDENT 一律送去 _stmt_assign，
+        #  而 _stmt_assign 假设 IDENT 后面**必须**是「 或 .，
+        #  于是"调用语句"这种以 IDENT 开头、后面跟 '(' 的写法被判成了错误赋值。}
+        # {修法：_stmt_assign 遇到 '(' 时改走"表达式语句"路径。}
+        # **已验证**（v2 回归的"调用语句"用例）。
+        if env.kind in ("IDENT", "KW_SELF"):
+            return self._stmt_assign()
 
         found = env.lexeme if env.kind != "EOF" else "文件结尾"
         if env.kind in ("NEWLINE", "INDENT", "DEDENT"):
             found = "换行"
-        self._fail("语句必须以 变量名 / if / $ 开头，却遇到 " + repr(found))
+        self._fail(
+            "语句必须以 变量名 / if / while / for / def / return / class / 全局 / $ 开头，"
+            "却遇到 " + repr(found)
+        )
+
+    def _stmt_keyword(self, kind):
+        """把关键字 token 分派到各自的语句解析函数。
+
+        {意图：增加复杂度} —— 明明可以像 _statement 那样一串 if，
+        这里偏要再过一层 kind→函数 的映射，于是每个关键字语句
+        在调用栈上又多一帧。
+        """
+        if kind == "KW_IF":
+            return self._stmt_if()
+        if kind == "KW_WHILE":
+            return self._stmt_while()
+        if kind == "KW_FOR":
+            return self._stmt_for()
+        if kind == "KW_DEF":
+            return self._stmt_def()
+        if kind == "KW_RETURN":
+            return self._stmt_return()
+        if kind == "KW_CLASS":
+            return self._stmt_class()
+        if kind == "KW_GLOBAL":
+            return self._stmt_global()
+        self._fail("内部错误：_stmt_keyword 不认识 " + repr(kind))
+
+    def _stmt_while(self):
+        """while 循环：`while 条件 <缩进块>`
+
+        约束：循环体复用 if 的 _block()，所以缩进规则完全一致。
+        没有 break / continue —— 用户没要，而且本语言连分号都没有，
+        再加两个跳出关键字会让语法表继续膨胀。
+        """
+        self._bump()  # 吃掉 'while'
+        cond = self._l11()
+        self._want_newline()
+        body = self._block()
+        node = WhileStmt(cond, body, cond.line, cond.column)
+        node.reify()
+        self.book.mint("解析:while 语句")
+        return node
+
+    def _stmt_for(self):
+        """遍历：`for 变量 in 表达式 <缩进块>`
+
+        {意图：增加复杂度} —— 'for' 和 'in' 都必须是关键字，
+        否则 `for i in xs` 里的 in 会被当成普通标识符（它是合法变量名），
+        于是语法不报错、语义全错。这种"静默走错"正是本项目最爱埋的坑。
+        """
+        self._bump()  # 吃掉 'for'
+        name_env = self._want("IDENT", "遍历变量名")
+        if not self._is("KW_IN"):
+            self._fail("for 之后期待 'in'（写作 for i in [1, 2, 3]）")
+        self._bump()
+        iterable = self._l11()
+        self._want_newline()
+        body = self._block()
+        node = ForStmt(name_env.lexeme, iterable, body, name_env.line, name_env.column)
+        node.reify()
+        self.book.mint("解析:for 语句")
+        return node
+
+    def _stmt_return(self):
+        """函数返回：`return [表达式]`
+
+        约束：表达式可以省略（写成光秃秃的 return），此时返回 0。
+        判断依据是"后面还跟不跟表达式"——用 _starts_operand 复用已有的判断。
+        """
+        ret_env = self._bump()  # 吃掉 'return'
+        if self._at_statement_end():
+            self._want_newline()
+            node = ReturnStmt(None, ret_env.line, ret_env.column)
+        else:
+            expr = self._l11()
+            self._want_newline()
+            node = ReturnStmt(expr, ret_env.line, ret_env.column)
+        node.reify()
+        self.book.mint("解析:return 语句")
+        return node
+
+    def _stmt_def(self):
+        """函数定义：`def 名字(参数, ...) <缩进块>`
+
+        约束：参数表不支持默认值、可变参数、关键字参数。
+        本语言连类型都没有，参数就是一堆名字。
+        """
+        self._bump()  # 吃掉 'def'
+        name_env = self._want("IDENT", "函数名")
+        if not (self._is("SYMBOL") and self._cur().lexeme == "("):
+            self._fail("函数名之后期待 '('（写作 def 加(a, b)）")
+        self._bump()
+        params = []
+        # 空参数表：def 名字()
+        if not (self._is("SYMBOL") and self._cur().lexeme == ")"):
+            while True:
+                # 参数名可以是普通标识符，也可以是 self——
+                # 本语言不要求写 self，但照 Python 习惯写了也得能跑。
+                # #20「`def __init__(self, v)` 报"期待参数名，却遇到 'self'"」
+                # {曾出现：v2 回归的"显式写 self 参数"用例}
+                # {根因：参数名只接受 IDENT，而 self 是关键字（KW_SELF）。}
+                # {修法：两个都收；self 在 invoke 里会被自动跳过、
+                #  真实例绑定，所以用户写不写都不影响行为。}
+                # **已验证**。
+                if self._is("KW_SELF"):
+                    param_env = self._bump()
+                else:
+                    param_env = self._want("IDENT", "参数名")
+                params.append(param_env.lexeme)
+                if self._is("SYMBOL") and self._cur().lexeme == ",":
+                    self._bump()
+                    continue
+                break
+        if not (self._is("SYMBOL") and self._cur().lexeme == ")"):
+            self._fail("参数表缺少收尾的 ')'")
+        self._bump()
+        self._want_newline()
+        body = self._block()
+        node = DefStmt(name_env.lexeme, params, body, name_env.line, name_env.column)
+        node.reify()
+        self.book.mint("解析:def 语句")
+        return node
+
+    def _stmt_class(self):
+        """类定义：`class 名字 <缩进块>`
+
+        约束：没有继承、没有 super、没有静态方法。
+        块里只认 def（当方法）和赋值（当类属性），别的语句会报错。
+        """
+        self._bump()  # 吃掉 'class'
+        name_env = self._want("IDENT", "类名")
+        self._want_newline()
+        body = self._block()
+        node = ClassStmt(name_env.lexeme, body, name_env.line, name_env.column)
+        node.reify()
+        self.book.mint("解析:class 语句")
+        return node
+
+    def _stmt_global(self):
+        """作用域声明：`全局 名字`，后面**可以**直接跟一个赋值。
+
+        用户定的是 Python 模式：函数内赋值默认建局部变量，
+        想改全局必须先声明。
+
+        #17「`全局 g「999」` 报"语句结尾期待换行，却遇到 '「'"」
+        {曾出现：v2 首测的"全局声明"用例，用户最自然的写法就是声明和赋值写一行}
+        {根因：最初把 `全局` 设计成一条**独立语句**，于是写完名字就要求换行，
+         后面那个「」被当成多余的 token。设计和使用习惯对不上。}
+        {修法：声明之后如果紧跟「，就顺手把这条赋值也解析进来，
+         返回一个 Block 节点（先声明、再赋值两条语句）。
+         两种写法都支持：`全局 g` 单独一行，或 `全局 g「999」` 一行搞定。}
+        **已验证**。
+        """
+        self._bump()  # 吃掉 '全局'
+        name_env = self._want("IDENT", "变量名")
+
+        declare = GlobalStmt(name_env.lexeme, name_env.line, name_env.column)
+        declare.reify()
+        self.book.mint("解析:全局声明")
+
+        # 只声明，不赋值
+        if not (self._is("SYMBOL") and self._cur().lexeme == "「"):
+            self._want_newline()
+            return declare
+
+        # 声明 + 赋值：把「」那段按普通赋值的规则解析一遍。
+        self._bump()
+        self.paren_depth = self.paren_depth + 1
+        expr = self._l11()
+        self.paren_depth = self.paren_depth - 1
+        if not (self._is("SYMBOL") and self._cur().lexeme == "」"):
+            self._fail("赋值缺少收尾的 '」'")
+        self._bump()
+        self._want_newline()
+        assign = AssignStmt(name_env.lexeme, expr, name_env.line, name_env.column)
+        assign.reify()
+        self.book.mint("解析:全局声明并赋值")
+
+        block = BlockStmt([declare, assign], name_env.line, name_env.column)
+        block.reify()
+        return block
 
     def _stmt_assign(self):
-        """赋值：IDENT「表达式」
+        """赋值：IDENT「表达式」  或  对象.属性「表达式」
 
         新语法把"声明 + 赋值"合成了一步（旧版是 manifest + will + be 三步）。
         {意图：增加复杂度} —— 语法上省了两个字，但解释器那边照样要查 Registry、
         走字符串往返、写回列表——底下的活一点没少。
+
+        第二版：左侧现在可以是一个属性（`self.x「1」`）。
+        实现方式是把左侧解析成一个普通表达式，再看它是不是
+        "光秃秃的标识符"——是的话走变量赋值，不是的话走属性赋值。
+        于是同一个「」符号下面藏着两条完全不同的路径。
         """
+        # self 也能出现在赋值左边（`self「...」` 没意义，但 `self.x「...」` 有）
+        if self._is("KW_SELF"):
+            target = self._postfix()
+            if not (self._is("SYMBOL") and self._cur().lexeme == "「"):
+                self._fail("self 之后期待 '.' 或 '「'")
+            return self._finish_assign_to(target)
+
         name_env = self._want("IDENT", "变量名")
         if not (self._is("SYMBOL") and self._cur().lexeme == "「"):
+            # 属性赋值：`a.b「1」`。此时左边那个 IDENT 后面跟的是 '.'。
+            if self._is("SYMBOL") and self._cur().lexeme == ".":
+                target = self._finish_attr_target(name_env)
+                return self._finish_assign_to(target)
+            # 调用语句：`打招呼()`。左边是个标识符，但后面跟的是 '('，
+            # 不是赋值。见 #16。
+            if self._is("SYMBOL") and self._cur().lexeme == "(":
+                return self._finish_expr_statement(name_env)
             # 又是跨语言习惯：用户写了 print(x) 或 x = 1，
             # 字符全都认识，所以词法层的 FOREIGN_HABITS 表拦不住，只能在这里兜。
             # #11「写 print(x) 得到"变量 'print' 之后期待 '「'"，用户不知道输出该写 $()」
@@ -1859,6 +2589,71 @@ class Parser:
         node = AssignStmt(name_env.lexeme, expr, name_env.line, name_env.column)
         node.reify()
         self.book.mint("解析:赋值语句")
+        return node
+
+    def _finish_expr_statement(self, first_env):
+        """调用语句：`名字(参数)`（或 `对象.方法(参数)`）单独成行。
+
+        {意图：增加复杂度} —— 本语言原本没有"表达式语句"这个概念，
+        每个语句都必须有明确的效果（赋值 / 输出 / 条件）。
+        加了函数之后，"调用一个有副作用的函数"必须能单独成行，
+        所以这里补上第五种语句形式：求值之后**把结果直接扔掉**。
+        """
+        # 从第一个标识符开始，交给 _postfix 把 '(' 和 '.' 都吃掉。
+        node = IdentNode(first_env.lexeme, first_env.line, first_env.column)
+        node.reify()
+        # _postfix 是从 _atom_base 之后开始循环的，这里手工把首段喂进去。
+        expression = self._postfix_tail(node)
+        if not isinstance(expression, (CallNode2, AttrNode)):
+            self._fail(
+                "这条语句光算了个值但没有任何效果"
+                "（pyPython 没有表达式语句；要么赋值，要么 $(...) 输出，要么调用函数）"
+            )
+        self._want_newline()
+        stmt = ExprStmt(expression, first_env.line, first_env.column)
+        stmt.reify()
+        self.book.mint("解析:调用语句")
+        return stmt
+
+    def _finish_attr_target(self, first_env):
+        """把 `a.b.c` 这样的写法在赋值左侧解析成 AttrNode。
+
+        约束：句点后面必须是标识符（或 self）。数字不行——`a.1「...」`
+        不是合法目标，因为 1 不是属性名。
+        """
+        node = IdentNode(first_env.lexeme, first_env.line, first_env.column)
+        node.reify()
+        while self._is("SYMBOL") and self._cur().lexeme == ".":
+            self._bump()
+            name_env = self._cur()
+            if name_env.kind not in ("IDENT", "KW_SELF"):
+                self._fail("属性点 '.' 之后期待属性名，却遇到 "
+                           + repr(name_env.lexeme))
+            self._bump()
+            node = AttrNode(node, name_env.lexeme, node.line, node.column)
+            node.reify()
+            self.book.mint("解析:属性目标")
+        return node
+
+    def _finish_assign_to(self, target):
+        """左侧是个属性（AttrNode）时的赋值收尾。"""
+        if isinstance(target, IdentNode):
+            # 理论上不会走到这里（标识符路径在上面已经处理），
+            # 但保留分支以防将来 _postfix 的行为变化。
+            self._fail("内部错误：_finish_assign_to 收到的是标识符")
+        if not (self._is("SYMBOL") and self._cur().lexeme == "「"):
+            self._fail("属性之后期待 '「'")
+        self._bump()
+        self.paren_depth = self.paren_depth + 1
+        expr = self._l11()
+        self.paren_depth = self.paren_depth - 1
+        if not (self._is("SYMBOL") and self._cur().lexeme == "」"):
+            self._fail("赋值缺少收尾的 '」'")
+        self._bump()
+        self._want_newline()
+        node = AttrAssignStmt(target, expr, target.line, target.column)
+        node.reify()
+        self.book.mint("解析:属性赋值语句")
         return node
 
     def _stmt_print(self):
@@ -2017,6 +2812,21 @@ def to_binary(number) -> str:
     return sign + "0b" + digits
 
 
+def synthesize_verdict_text(description: str, number_for_truth: int, chamber) -> str:
+    """给函数/类/实例这类"没有数值"的值拼一段带真值的输出。
+
+    {意图：增加复杂度} —— 和字符串分支的做法完全一样：
+    随便挑一个整数（参数个数/方法个数/属性个数）扔进密室，
+    把问出来的真值贴上去。这个数字和"真假"毫无关系，
+    但规则保住了：任何东西被打印时都经过真值密室。
+
+    约束：没有二进制。理由和字符串一样——函数转二进制没有意义。
+    """
+    verdict = chamber.interrogate(number_for_truth)
+    decorated = description + " ⟨" + verdict + "⟩"
+    return stripcut(decorated, " ")
+
+
 def transmute_output(value, chamber) -> str:
     """把一个 PyPyValue 变成最终打印的字符串。
 
@@ -2039,6 +2849,21 @@ def transmute_output(value, chamber) -> str:
     stripcut 和密室审问。用户写 $([1,[2,[3]]]) 就能看到指数级的浪费。
     """
     raw = value.raw
+
+    # --- 函数 / 类 / 实例分支 ---------------------------------------------------
+    #
+    # 约束：这三样**不能**走数字那条路（它们没有"数值"可言），
+    # 也不能走列表那条（它们不是可遍历的容器）。
+    # 所以直接回显一个描述字符串，但**照样要过真值密室**——
+    # 用函数参数个数当"数值"扔进去，保证"任何值都必须经过密室"不被破坏。
+    # {意图：增加复杂度} —— 参数个数判真值同样毫无语义依据，
+    # 和字符串拿长度判真值是一路货色。
+    if isinstance(raw, PyPyFunction):
+        return synthesize_verdict_text(raw.describe(), len(raw.params), chamber)
+    if isinstance(raw, PyPyClass):
+        return synthesize_verdict_text(raw.describe(), len(raw.methods), chamber)
+    if isinstance(raw, PyPyInstance):
+        return synthesize_verdict_text(raw.describe(), len(raw.attrs), chamber)
 
     # --- 字符串分支 -------------------------------------------------------------
     if isinstance(raw, str):
@@ -2167,7 +2992,14 @@ class Interpreter:
     {意图：增加复杂度} —— 每个节点在解释时都要再 reify 一次。
     """
 
-    MAX_DEPTH = 200  # 调用深度上限。超了就崩——这也是一种"能跑的东西整不能跑"
+    # 调用深度上限。
+    #
+    # 约束（#21 实测出来的）：这个值**必须低于** Python 自己的栈能撑住的层数，
+    # 否则检查永远轮不到执行，用户看到的是 CPython 的 RecursionError。
+    # pyPython 一层递归约烧 5 个 Python 栈帧，Python 默认上限 1000 帧，
+    # 所以实测安全线在 196 层左右。取 120 留足余量——
+    # 函数体越复杂（嵌套调用、并排相乘、深表达式）每层烧的帧越多。
+    MAX_DEPTH = 120
 
     def __init__(self, lines, book):
         self.lines = lines
@@ -2177,6 +3009,75 @@ class Interpreter:
         self.emitted = []       # 收集输出行，供 main() 展示
         self.depth = 0
         self.last_verdict = "FALSE"
+
+        # --- 第二版新增：作用域栈 ---------------------------------------------
+        #
+        # 用户定的是 **Python 模式**：
+        #   · 读取变量时从内到外找（局部 → 全局）
+        #   · 赋值默认**创建/覆盖局部**变量（所以递归天然正确）
+        #   · 想改全局必须先用 `全局 名字` 声明
+        #
+        # self.scopes 是"局部变量帧"的栈，栈底永远是全局帧。
+        # 每个帧是一个 dict：名字 → PyPyValue。
+        #
+        # 约束：为什么不把局部变量也扔进 Registry？
+        #   因为 Registry 是**全局扁平列表**，没有作用域概念，
+        #   塞进去就无法区分"这个 x 是哪个函数的"。
+        #   所以局部变量走 Python dict（这是本项目里少见的"正常"实现），
+        #   而全局变量仍然走 Registry 的字符串往返——两套并存。
+        self.scopes = [{}]      # 栈底 = 全局帧
+        self.global_names = set()   # 当前帧里被 `全局` 声明过的名字
+
+    # -- 作用域 ----------------------------------------------------------------------
+
+    def push_scope(self):
+        self.scopes.append({})
+        self.book.mint("作用域:入栈")
+
+    def pop_scope(self):
+        self.scopes.pop()
+        self.book.mint("作用域:出栈")
+
+    def lookup(self, name):
+        """从内到外找变量。找到返回 PyPyValue，找不到返回 None。
+
+        {意图：增加复杂度} —— 从栈顶往下逐帧找，每帧都要过一遍 dict。
+        明明可以维护一个"名字→帧"的索引，但那样递归就少绕几层。
+        """
+        for level in range(len(self.scopes) - 1, -1, -1):
+            frame = self.scopes[level]
+            if name in frame:
+                return frame[name]
+        return None
+
+    def assign_local(self, name, value):
+        """赋值。按 Python 模式决定写哪儿：
+
+          1. 当前帧里被 `全局 name` 声明过  -> 写全局帧
+          2. 名字已在当前帧                -> 覆盖当前帧
+          3. 当前帧是全局帧                -> 写全局帧
+          4. 其它情况                      -> 在**当前帧新建**（这就是局部的由来）
+        """
+        if name in self.global_names:
+            self.scopes[0][name] = value
+            self.book.mint("作用域:写全局(已声明)")
+            return
+        current = self.scopes[-1]
+        if name in current:
+            current[name] = value
+            self.book.mint("作用域:覆盖局部")
+            return
+        if len(self.scopes) == 1:
+            current[name] = value
+            self.book.mint("作用域:写全局")
+            return
+        current[name] = value
+        self.book.mint("作用域:新建局部")
+
+    def declare_global(self, name):
+        """`全局 名字` 语句的效果：只记一笔，不改任何值。"""
+        self.global_names.add(name)
+        self.book.mint("作用域:声明全局")
 
     # -- 语句层 ----------------------------------------------------------------------
 
@@ -2233,8 +3134,63 @@ class Interpreter:
             return self._do_yield(node)
         if isinstance(node, IfStmt):
             return self._do_if(node)
+        # 第二版：循环 / 遍历 / 函数 / 类
+        if isinstance(node, WhileStmt):
+            return self._do_while(node)
+        if isinstance(node, ForStmt):
+            return self._do_for(node)
+        if isinstance(node, DefStmt):
+            return self._do_def(node)
+        if isinstance(node, ClassStmt):
+            return self._do_class(node)
+        if isinstance(node, ReturnStmt):
+            return self._do_return(node)
+        if isinstance(node, GlobalStmt):
+            return self._do_global(node)
+        if isinstance(node, AttrAssignStmt):
+            return self._do_attr_assign_node(node)
+        if isinstance(node, ExprStmt):
+            return self._do_expr_stmt(node)
+        if isinstance(node, BlockStmt):
+            return self._do_block_stmt(node)
 
         self.collapse("未知语句节点 " + type(node).__name__, node)
+
+    def _do_block_stmt(self, node):
+        """把打包的语句逐条执行。见 BlockStmt 的说明。"""
+        self.book.mint("解释:语句块节点")
+        result = None
+        for statement in node.statements:
+            result = self._execute(statement)
+        return result
+
+    def _do_expr_stmt(self, node):
+        """调用语句：求值，然后把结果扔掉。
+
+        {意图：增加复杂度} —— 结果**算出来了但不用**。
+        为了显得不那么浪费，这里还特意把它 encode 一遍再丢掉——
+        于是每次"光调用一下"都要多付一次编码的钱，产出为零。
+        """
+        self.book.mint("解释:调用语句")
+        value = self._evaluate(node.expr)
+        value.encode()   # 编码一下再扔掉。产出是零，开销是实打实的。
+        return value
+
+    def _do_attr_assign_node(self, node):
+        """属性赋值语句：`self.x「值」`。见 _do_assign_attr。
+
+        约束：这里传进去的是 **node.target.target**，也就是 `.` 左边那一半
+        （比如 `self`），**不是**整个 AttrNode。
+        #19「`self.x「1」` 报"实例上没有属性 'x'"」
+        {曾出现：v2 测试的"建对象读属性"用例，属性一个都没写进去}
+        {根因：最初把整个 AttrNode 传给了 _do_assign_attr，于是它去**求值**
+         `self.x` ——那是在**读**这个属性，而此时属性还不存在，所以报错。
+         赋值语句要做的是"求值左边的主体（self），然后往它上面写属性名"。}
+        {修法：传 node.target.target（主体）而不是 node.target（整个属性访问）。}
+        **已验证**。
+        """
+        value = self._evaluate(node.expr)
+        return self._do_assign_attr(node.target.target, node.target.name, value)
 
     def _do_assign(self, node):
         """新语法赋值：`x「表达式」`。
@@ -2245,6 +3201,11 @@ class Interpreter:
           2. 求值表达式（走完整 8 层调用链）
           3. encode 成字符串后写回 Registry
         然后再读回来验证一遍。语法简化了，运行期的活一步没少。
+
+        第二版：写完之后**还要再往作用域帧里写一遍**。
+        也就是同一个值被存了两次——一次在 Registry（字符串往返），
+        一次在作用域帧（直接放对象）。读取时优先读作用域帧。
+        这是刻意的冗余：变量同时活在两套存储里，谁也不清理谁。
         """
         self.book.mint("解释:赋值")
         if not self.registry.contains(node.name):
@@ -2258,7 +3219,25 @@ class Interpreter:
         self.registry.write(node.name, encoded)    # 转换：字符串 → 列表
         self.registry.read(node.name)              # 写完回读，纯仪式
         self.book.mint("解释:写入后回读验证")
+
+        # 第二版：真正生效的写入在这里。见 assign_local 的规则说明。
+        self.assign_local(node.name, value)
         return value
+
+    def _do_assign_attr(self, target_node, name, value):
+        """给属性赋值：`self.x「1」`。
+
+        {意图：增加复杂度} —— 属性赋值**不进 Registry**（属性名不是变量名），
+        但为了保持"每次写入都留下痕迹"，这里照样走一遍 value 的 encode，
+        再把它 decode 回来存进去——纯粹为了让写入多绕一圈。
+
+        约束：只有实例能有属性。给类或数字写属性会报错。
+        """
+        self.book.mint("解释:属性赋值")
+        # 无意义的编码往返，只是为了"每次写入都发生过一次数据转换"。
+        value = PyPyValue.decode(value.encode())
+        target = self._evaluate(target_node)
+        return self.write_attribute(target, name, value, target_node)
 
     def _do_print(self, node):
         """新语法输出：`$(表达式)`"""
@@ -2327,6 +3306,330 @@ class Interpreter:
             result = self._execute(statement)
         return result
 
+    # -- 第二版：循环 / 遍历 / 函数 / 类 ----------------------------------------------
+
+    def _do_while(self, node):
+        """while 循环。
+
+        {意图：增加复杂度} —— 每一轮循环都要：
+          1. 重新求值条件（走完整 8 层调用链）
+          2. 把结果关进真值密室问一次
+          3. 通过之后再把块里的语句逐条执行
+
+        也就是说条件表达式**每转一圈就被重新解释一遍**，
+        哪怕里面的变量一个都没变。真语言会把它优化成一次判断，
+        这里坚持每圈都从头算。
+
+        约束：没有 break/continue。想跳出循环就只能让条件变假。
+        """
+        self.book.mint("解释:while")
+        rounds = 0
+        result = None
+        while True:
+            raw = self._evaluate(node.cond)
+            verdict = self.chamber.interrogate(raw.decoded())
+            self.last_verdict = verdict
+            if not self.chamber.is_true(verdict):
+                break
+            rounds = rounds + 1
+            # 循环也要计入调用深度，否则 `while 1` 会真的永远跑下去。
+            if rounds > self.MAX_DEPTH:
+                raise MuError(
+                    "循环超过 " + str(self.MAX_DEPTH) + " 圈还没停"
+                    "（pyPython 故意不让你写死循环）",
+                    node.line, node.column, self._line_text(node.line),
+                )
+            for statement in node.body:
+                result = self._execute(statement)
+        self.book.mint("解释:while 结束")
+        return result
+
+    def _do_for(self, node):
+        """遍历语句：`for i in 列表 <块>`
+
+        {意图：增加复杂度} —— 可遍历的东西先求值成一个 PyPyValue，
+        然后**先 encode 成字符串、再 decode 回来**，才拿到元素列表。
+        本来 raw 属性就在手边，但那样就少了一次完整的编码往返。
+
+        约束：只能遍历列表和字符串。
+        遍历数字会报错（不猜"循环 N 次"，那是 range 的活，本语言没有 range）。
+        """
+        self.book.mint("解释:for")
+        container = self._evaluate(node.iterable)
+        blob = container.encode()
+        restored = PyPyValue.decode(blob).raw
+        self.book.mint("解释:for 编码往返")
+
+        if isinstance(restored, str):
+            items = []
+            for character in restored:
+                items.append(PyPyValue(character))
+        elif isinstance(restored, list):
+            items = list(restored)
+        else:
+            self.collapse(
+                "for 只能遍历列表或字符串，不能遍历 "
+                + type(restored).__name__,
+                node,
+            )
+
+        result = None
+        for item in items:
+            self.assign_local(node.name, item)
+            for statement in node.body:
+                result = self._execute(statement)
+        return result
+
+    def _do_def(self, node):
+        """函数定义。
+
+        {意图：增加复杂度} —— 定义时把 AST 装进 PyPyFunction，
+        然后**照常走一遍 Registry 的编码往返**（encode 会把函数登记进
+        OBJECT_TABLE 拿个编号），最后再 decode 回来存在作用域帧里。
+        也就是说一个函数被存了两份：帧里是真对象，Registry 里是个编号。
+        """
+        self.book.mint("解释:def")
+        function = PyPyFunction(node.name, node.params, node.body)
+        encoded = PyPyValue(function).encode()
+        if not self.registry.contains(node.name):
+            self.registry.register(node.name)
+        self.registry.write(node.name, encoded)
+        self.assign_local(node.name, PyPyValue(function))
+        return PyPyValue(function)
+
+    def _do_class(self, node):
+        """类定义。
+
+        约束：块里只认 def（当方法）和赋值（当类属性）。
+        别的语句直接报错——类的定义体不是普通代码块，
+        不会在定义时"执行"（没有 Python 那种类体执行语义）。
+        """
+        self.book.mint("解释:class")
+        klass = PyPyClass(node.name)
+
+        for statement in node.body:
+            if isinstance(statement, DefStmt):
+                # 方法：第一个参数是 self，不检查参数个数，
+                # 反正调用时对不上会各自报错。
+                klass.methods[statement.name] = PyPyFunction(
+                    statement.name, statement.params, statement.body)
+            elif isinstance(statement, AssignStmt):
+                # 类属性。求值时**还没有 instance**，所以这里不能引用别的方法。
+                klass.attrs[statement.name] = self._evaluate(statement.expr)
+            else:
+                self.collapse(
+                    "类体里只能写 def（方法）或 变量「值」（类属性），"
+                    "不能写 " + type(statement).__name__,
+                    statement,
+                )
+
+        encoded = PyPyValue(klass).encode()
+        if not self.registry.contains(node.name):
+            self.registry.register(node.name)
+        self.registry.write(node.name, encoded)
+        self.assign_local(node.name, PyPyValue(klass))
+        return PyPyValue(klass)
+
+    def _do_return(self, node):
+        """return：用 Python 异常做控制流，把调用栈真的展开一层。
+
+        {意图：增加复杂度} —— 正常的解释器会用返回码或哨兵值，
+        这里选择抛 ReturnSignal 异常，因为异常会让 Python 真的去
+        走一遍栈展开（虽然被最近的调用点接住了）。
+        没有表达式的 `return` 返回 0。
+        """
+        self.book.mint("解释:return")
+        if node.expr is None:
+            value = PyPyValue(0)
+        else:
+            value = self._evaluate(node.expr)
+        raise ReturnSignal(value)
+
+    def _do_global(self, node):
+        """`全局 名字`：只记一笔，不改任何值。"""
+        self.book.mint("解释:全局声明")
+        self.declare_global(node.name)
+        return None
+
+    def instantiate(self, klass, args, node):
+        """创建一个实例：`类名(参数...)`。
+
+        {意图：增加复杂度} —— 和 Python 一样，"调类"其实是
+        "造对象 + 调 __init__"的伪装，但这里刻意把三步拆得很开：
+
+          1. 先造一个空实例（此时一个属性都没有）
+          2. 把实例自己塞成 __init__ 的第一个实参（这就是 self 的来历）
+          3. 调 __init__，返回值**直接丢掉**（构造器不该有返回值）
+
+        注意第 3 步：__init__ 的返回值被无视。用户写
+        `def __init(x)  return 5` 也不会报错，那个 5 就是消失了——
+        这跟 Python 不一样（Python 会抛 TypeError），
+        但本项目的原则是"能少报的错就少报"，静默吞掉更符合风格。
+
+        约束：__init__ 的参数个数必须和传进来的**对不上也照样报错**，
+        但报错信息说的是"函数 __init__ 需要 N 个参数"，
+        用户看到的是 __init__ 而不是类名——这是刻意的混乱。
+        """
+        self.book.mint("解释:创建实例")
+        instance = PyPyInstance(klass)
+
+        if "__init__" not in klass.methods:
+            # 没有构造器也能建对象。但参数必须为空——
+            # 不然用户以为传进去的参数被用上了，其实全丢了。
+            if len(args) > 0:
+                self.collapse(
+                    "类 " + repr(klass.name) + " 没有定义 __init__，"
+                    "所以不能传参数（传了的会静默丢掉，干脆报错）",
+                    node,
+                )
+            return PyPyValue(instance)
+
+        # 把实例绑到 self，然后把用户传的参数照常绑定。
+        # 注意这里**不是**把实例塞进 args——它单独走 instance 通道，
+        # 因为 `def __init(x, y)` 的形参表里并没有 self 这一项。
+        self.invoke_method(klass.methods["__init__"], list(args), node,
+                           instance=PyPyValue(instance))
+        # __init__ 的返回值丢掉。见上面第 3 步。
+        return PyPyValue(instance)
+
+    def invoke_method(self, function, args, node, instance=None):
+        """调用一个方法：把实例绑到 self。
+
+        用户定的是「方法里不写 self 参数」——
+        写 `def __init(x, y)` 而不是 `def __init(self, x, y)`。
+        因为本语言已经用 `self` 当关键字了，再要求写进参数表就是重复劳动。
+
+        约束：**两种写法都支持**。如果用户照 Python 习惯写了
+        `def f(self, x)`，invoke 里会把那个多余的 self 名字跳过，
+        仍然用真实例绑定——保证 self 永远指向调用者，不会被实参覆盖。
+        """
+        if instance is None:
+            return self.invoke(function, args, node)
+        return self.invoke(function, args, node, prelude_instance=instance)
+
+    def invoke(self, function, args, node, prelude_instance=None):
+        """调用一个 PyPyFunction。这是"函数调用"的唯一入口。
+
+        {意图：增加复杂度} —— 每次调用都要：
+          1. 检查深度（递归限制，见 MAX_DEPTH）
+          2. 压一个新作用域帧
+          3. **逐个**绑定参数，每个参数都要过一遍 assign_local
+          4. 重新遍历函数体 AST 逐条执行（定义时不做任何预编译）
+          5. 接住 ReturnSignal 当作返回值
+          6. 弹帧、减深度
+
+        第 4 步是重点：函数体**每次调用都被重新解释一遍**，
+        从来没有任何缓存。同一个函数调 100 次，AST 就被遍历 100 次。
+        """
+        self.book.mint("解释:调用函数")
+        if self.depth >= self.MAX_DEPTH:
+            raise MuError(
+                "递归太深（超过 " + str(self.MAX_DEPTH) + " 层）。"
+                "pyPython 故意不让你无限递归——这就是「把能跑的东西整不能跑」。",
+                node.line, node.column, self._line_text(node.line),
+            )
+
+        # 参数个数检查。注意方法调用时形参表里可能多写了一个 self，
+        # 所以先把"要不要扣掉 self"算清楚，再比较个数。
+        declared = list(function.params)
+        if prelude_instance is not None and len(declared) > 0 and declared[0] == "self":
+            declared = declared[1:]
+        if len(args) != len(declared):
+            self.collapse(
+                "函数 " + repr(function.name) + " 需要 "
+                + str(len(declared)) + " 个参数，实际给了 "
+                + str(len(args)),
+                node,
+            )
+
+        self.depth = self.depth + 1
+        self.push_scope()
+        # 保存/恢复 global_names：每个调用帧有自己的"哪些名字是全局的"集合。
+        saved_globals = self.global_names
+        self.global_names = set()
+        try:
+            # 形参表里如果第一个名字就叫 self，把它跳过——
+            # 真正的 self 由 prelude_instance 负责绑定（见 invoke_method）。
+            # 这样 `def f(self, x)` 和 `def f(x)` 两种写法都能跑。
+            names = list(function.params)
+            if prelude_instance is not None and len(names) > 0 and names[0] == "self":
+                names = names[1:]
+                if len(args) != len(names):
+                    self.collapse(
+                        "方法 " + repr(function.name) + " 需要 "
+                        + str(len(names)) + " 个参数（self 不算），实际给了 "
+                        + str(len(args)),
+                        node,
+                    )
+
+            # 先把 self 绑上。注意它绑在**当前帧**，所以每个实例方法
+            # 看到的 self 就是调用它的那个对象。
+            if prelude_instance is not None:
+                self.assign_local("self", prelude_instance)
+
+            position = 0
+            for param_name in names:
+                self.assign_local(param_name, args[position])
+                position = position + 1
+            function.call_count = function.call_count + 1
+
+            result = PyPyValue(0)
+            try:
+                for statement in function.body:
+                    self._execute(statement)
+            except ReturnSignal as signal:
+                # 用异常传返回值。见 _do_return 的说明。
+                result = signal.value
+        finally:
+            self.global_names = saved_globals
+            self.pop_scope()
+            self.depth = self.depth - 1
+
+        return result
+
+    def read_attribute(self, target, name, node):
+        """读属性。三段查找：实例属性 → 类属性 → 方法。
+
+        {意图：增加复杂度} —— 三段查找每次都从头做，没有缓存。
+        方法还要现包一个 PyPyValue 出来（又走一遍登记表）。
+        """
+        self.book.mint("解释:读属性")
+        raw = target.raw
+        if isinstance(raw, PyPyInstance):
+            if name in raw.attrs:
+                return raw.attrs[name]
+            if name in raw.klass.attrs:
+                return raw.klass.attrs[name]
+            if name in raw.klass.methods:
+                return PyPyValue(raw.klass.methods[name])
+            self.collapse(
+                dirty_attribute_message(raw, name), node)
+        if isinstance(raw, PyPyClass):
+            if name in raw.attrs:
+                return raw.attrs[name]
+            if name in raw.methods:
+                return PyPyValue(raw.methods[name])
+            self.collapse(
+                "类 " + repr(raw.name) + " 没有属性或方法 " + repr(name),
+                node,
+            )
+        self.collapse(
+            "不能从 " + type(raw).__name__ + " 上读属性 " + repr(name),
+            node,
+        )
+
+    def write_attribute(self, target, name, value, node):
+        """写属性。只能写实例属性——类属性和方法不给改。"""
+        self.book.mint("解释:写属性")
+        raw = target.raw
+        if not isinstance(raw, PyPyInstance):
+            self.collapse(
+                "只能给实例的属性赋值，不能给 " + type(raw).__name__ + " 赋值",
+                node,
+            )
+        raw.attrs[name] = value
+        return value
+
     # -- 表达式层 --------------------------------------------------------------------
 
     def _evaluate(self, node):
@@ -2348,8 +3651,68 @@ class Interpreter:
             return self._eval_neg(node)
         if isinstance(node, CallNode):
             return self._eval_call(node)
+        # 第二版：新语法的调用与属性访问
+        if isinstance(node, CallNode2):
+            return self._eval_call2(node)
+        if isinstance(node, AttrNode):
+            return self._eval_attr(node)
 
         self.collapse("未知表达式节点 " + type(node).__name__, node)
+
+    def _eval_call2(self, node):
+        """新语法调用：`名字(参数...)` 或 `对象.方法(参数...)`。
+
+        {意图：增加复杂度} —— 参数先全部求值（从左到右），
+        然后才去解析被调用的东西。也就是说**实参先算、被调者后算**，
+        和大多数语言的直觉相反。这是刻意保留的，因为我们本来就不定义求值顺序。
+
+        约束：如果被调用的是一个"方法"（从实例上取出来的 PyPyFunction），
+        要**自动把实例本身塞成第一个参数**。这就是 self 的来历——
+        它不是语法糖，是这里硬塞进去的一个实参。
+        """
+        self.book.mint("解释:调用2")
+
+        # 先把实参全算出来
+        args = []
+        for argument in node.args:
+            args.append(self._evaluate(argument))
+
+        # 先算被调用者
+        callee = self._evaluate(node.callee)
+
+        # 方法调用：`实例.方法(...)`。
+        #
+        # #18「`p.长度()` 报"函数 '长度' 需要 1 个参数，实际给了 2"」
+        # {曾出现：v2 测试的"调方法"用例}
+        # {根因：调用类的时候这里会先塞一次 self，
+        #  instantiate() 内部又塞了一次，变成了两个 self。}
+        # {修法：调用**类**时不在这里塞——那是创建实例，self 由
+        #  instantiate 负责；调用**实例上的方法**时，走 invoke_method
+        #  并把实例单独传进去（不当成普通实参），由它负责绑到 self。}
+        # **已验证**。
+        if isinstance(node.callee, AttrNode):
+            target_raw = self._evaluate(node.callee.target).raw
+            if isinstance(target_raw, PyPyInstance) and \
+                    isinstance(callee.raw, PyPyFunction):
+                return self.invoke_method(callee.raw, args, node,
+                                          instance=PyPyValue(target_raw))
+
+        if not isinstance(callee.raw, PyPyFunction):
+            # 第二版：调用的东西也可能是个**类**——那就是"创建实例"。
+            # 见 instantiate 的说明。
+            if isinstance(callee.raw, PyPyClass):
+                return self.instantiate(callee.raw, args, node)
+            self.collapse(
+                "这个东东不能被调用（它是 " + type(callee.raw).__name__ + "）",
+                node,
+            )
+        return self.invoke(callee.raw, args, node)
+
+    def _eval_attr(self, node):
+        """属性访问：`对象.属性`。"""
+        self.book.mint("解释:属性访问")
+        target = self._evaluate(node.target)
+        return self.read_attribute(target, node.name, node)
 
     def _eval_string(self, node):
         """字符串字面量求值。
@@ -2446,11 +3809,27 @@ class Interpreter:
         return PyPyValue(as_float)
 
     def _eval_ident(self, node):
-        """标识符求值：从 Registry 里读。
+        """标识符求值：先查作用域栈，再回落到 Registry。
 
-        {意图：增加复杂度} —— 读取要经过 O(n) 查找 + 反序列化 + 正则解码。
+        {意图：增加复杂度} —— 两套存储都要查。作用域栈是 Python dict
+        （O(1)），Registry 是序列化字符串列表（O(n) + 反序列化）。
+        命中作用域栈时**照样**还要去 Registry 里确认这个名字存在过，
+        所以即使是最快的路径也要付一次 O(n) 查找的钱。
+
+        第二版：作用域栈的存在让递归成为可能——每次函数调用都有自己的帧，
+        所以 `def 阶乘(n)` 里每一层的 n 互不干扰。
         """
         self.book.mint("解释:标识符")
+
+        found = self.lookup(node.name)
+        if found is not None:
+            # 还要走一遍 Registry 确认这个"名字"在全局也登记过。
+            # 纯粹是仪式：值已经拿到了，这一步不改变任何结果。
+            if self.registry.contains(node.name):
+                self.registry.read(node.name)
+                self.book.mint("解释:作用域命中后仍回读注册表")
+            return found
+
         if not self.registry.contains(node.name):
             self.collapse("名字 " + repr(node.name) + " 从未被 manifest 过", node)
         if self.registry.phase_of(node.name) < 1:
@@ -2767,7 +4146,31 @@ def evaluate_source(source: str, verbose: bool = False):
     statements = parser.parse()
 
     interpreter = Interpreter(lexer.lines, book)
-    interpreter.run(statements)
+
+    # #21「无限递归没有输出我们的"递归太深"提示，而是直接抛 Python 的
+    #      RecursionError: maximum recursion depth exceeded」
+    # {曾出现：v2 错误路径测试的"无限递归"用例}
+    # {根因（实测，不是猜）：本文件里 MAX_DEPTH=200，但 pyPython 的**一层**
+    #  递归要烧掉约 5 个 Python 栈帧（_execute → _evaluate → _eval_binop_node
+    #  → _eval_call2 → invoke 这一串）。Python 默认上限 1000 帧，
+    #  所以实际在**约 196 层**就撞上了 Python 自己的墙——
+  #  MAX_DEPTH=200 这个值从来没轮到过，那个检查是**假的保护**。
+  #  二分实测：196 层可以，197 层抛 RecursionError。}
+    # {修法：两道防线。
+    #   第一道：把 MAX_DEPTH 降到实测安全线以内（见类定义处的说明），
+    #   第二道：即使第一道没拦住（比如用户把 limit 调高了），
+    #   也把 Python 的 RecursionError 翻译成我们自己的炑错误，
+    #   不让原生异常泄漏给用户。}
+    # **已验证**（_tmp_v2err.py 的递归用例）。
+    try:
+        interpreter.run(statements)
+    except RecursionError:
+        raise MuError(
+            "递归太深，把 CPython 自己的调用栈撑爆了。"
+            "pyPython 故意不让你无限递归——"
+            "而且这次连我们自己的深度检查都没兜住，是 CPython 先报的错。",
+            1, 1, lexer.lines[0] if lexer.lines else "",
+        )
 
     return {
         "output": interpreter.emitted,
@@ -2787,6 +4190,7 @@ def evaluate_source(source: str, verbose: bool = False):
 # =====================================================================================
 #
 # 用例 1  语法上能过：新语法（x「」赋值 / ~ · 比较 / 缩进块 / 并排相乘）
+#          第二版追加 循环 / 遍历 / 函数+递归 / 类 / 作用域
 # 用例 2  性能上拉垮：实测单条赋值耗时，并与 CPython 对比，算慢了多少倍
 # 用例 3  抽象上拉满：打印完整泬账本，展示一次 1+1 到底绕了多少路
 
@@ -2821,6 +4225,43 @@ $(greeting)
 # 注意看输出——列表被序列化再反序列化，内层数据一样不丢
 mixed\u300c["a", "b", 1 + 2, [4, 5]]\u300d
 $(mixed)
+
+# --- 第二版：循环、遍历、函数、类 ---------------------------------------------
+# 循环：没有 break / continue，想跳出只能让条件变假
+i\u300c0\u300d
+while i < 3
+    i\u300ci + 1\u300d
+$(i)
+
+# 遍历：只能遍历列表和字符串（没有 range）
+\u603b\u8ba1\u300c0\u300d
+for v in [10, 20, 30]
+    \u603b\u8ba1\u300c\u603b\u8ba1 + v\u300d
+$(\u603b\u8ba1)
+
+# 函数 + 递归：能递归，但有深度上限
+def \u9636\u4e58(n)
+    if n < 2
+        return 1
+    return n * \u9636\u4e58(n - 1)
+$(\u9636\u4e58(5))
+
+# 类：构造器叫 __init__，self 不用写进参数表
+class \u70b9
+    def __init__(x, y)
+        self.x\u300cx\u300d
+        self.y\u300cy\u300d
+    def \u957f\u5ea6\u5e73\u65b9()
+        return self.x * self.x + self.y * self.y
+p\u300c\u70b9(3, 4)\u300d
+$(p.\u957f\u5ea6\u5e73\u65b9())
+
+# 作用域按 Python：函数里赋值默认建**局部**变量，所以这里 g 不变
+g\u300c1\u300d
+def \u53ea\u6539\u5c40\u90e8()
+    g\u300c777\u300d
+\u53ea\u6539\u5c40\u90e8()
+$(g)
 """
 
 DEMO_2_SOURCE = "x\u300c1 + 1\u300d\n$(x)\n"
@@ -2848,6 +4289,7 @@ def main():
     # --- 用例 1：语法上能过 ---------------------------------------------------------
     print()
     print("【用例 1】语法上能过：新语法（「」赋值 / ~ · 比较 / 缩进块 / 并排相乘）")
+    print("           第二版追加：while / for / def+递归 / class / 作用域")
     print("-" * 78)
     print("源码：")
     print(DEMO_1_SOURCE)

@@ -121,6 +121,88 @@ SYNTAX_CARDS = {
         "\n"
         "\u5b57\u7b26\u4e32\u91cc\u53ef\u4ee5\u76f4\u63a5\u6362\u884c\u3002"
     ),
+    # --- 第二版新增：循环 / 遍历 / 函数 / 类 ---------------------------------
+    "while": (
+        "pyPython \u5faa\u73af\n"
+        "\n"
+        "  while \u6761\u4ef6\n"
+        "      \u8bed\u53e5\n"
+        "\n"
+        "\u548c if \u4e00\u6837\u7528\u7f29\u8fdb\u5212\u5757\uff0c\u6ca1\u6709\u5192\u53f7\u3002\n"
+        "\n"
+        "\u6ca1\u6709 break / continue\u3002\n"
+        "\u60f3\u8df3\u51fa\u5faa\u73af\u5c31\u53ea\u80fd\u8ba9\u6761\u4ef6\u53d8\u5047\u3002\n"
+        "\n"
+        "  i\u300c0\u300d\n"
+        "  while i < 3\n"
+        "      $(i)\n"
+        "      i\u300ci + 1\u300d"
+    ),
+    "for": (
+        "pyPython \u904d\u5386\n"
+        "\n"
+        "  for \u53d8\u91cf in \u5217\u8868\n"
+        "      \u8bed\u53e5\n"
+        "\n"
+        "\u53ea\u80fd\u904d\u5386\u5217\u8868\u548c\u5b57\u7b26\u4e32\u3002\n"
+        "\u6ca1\u6709 range()\uff0c\u904d\u5386\u6570\u5b57\u4f1a\u62a5\u9519\u3002\n"
+        "\n"
+        "  for x in [1, 2, 3]\n"
+        "      $(x)\n"
+        "\n"
+        "  for c in \"abc\"\n"
+        "      $(c)"
+    ),
+    "def": (
+        "pyPython \u51fd\u6570\n"
+        "\n"
+        "  def \u540d\u5b57(\u53c2\u6570, ...)\n"
+        "      \u8bed\u53e5\n"
+        "      return \u8868\u8fbe\u5f0f\n"
+        "\n"
+        "\u53c2\u6570\u6ca1\u6709\u9ed8\u8ba4\u503c\u3002\n"
+        "return \u53ef\u4ee5\u7701\u7565\uff08\u6b64\u65f6\u8fd4\u56de 0\uff09\u3002\n"
+        "\n"
+        "  def \u52a0(a, b)\n"
+        "      return a + b\n"
+        "  $(\u52a0(3, 4))      \u8f93\u51fa 7\n"
+        "\n"
+        "\u53ef\u4ee5\u9012\u5f52\uff0c\u4f46\u6709\u6df1\u5ea6\u4e0a\u9650\u3002"
+    ),
+    "class": (
+        "pyPython \u7c7b\n"
+        "\n"
+        "  class \u540d\u5b57\n"
+        "      def __init__(\u53c2\u6570)\n"
+        "          self.\u5c5e\u6027\u300c\u503c\u300d\n"
+        "      def \u65b9\u6cd5()\n"
+        "          return self.\u5c5e\u6027\n"
+        "\n"
+        "\u6784\u9020\u5668\u53eb __init__\uff08\u53cc\u4e0b\u5212\u7ebf\uff09\u3002\n"
+        "self \u4e0d\u7528\u5199\u8fdb\u53c2\u6570\u8868\uff0c\u7cfb\u7edf\u81ea\u52a8\u7ed1\u3002\n"
+        "self \u662f\u771f\u5173\u952e\u5b57\uff0c\u4e0d\u662f\u666e\u901a\u53c2\u6570\u3002\n"
+        "\n"
+        "  p\u300c\u70b9(1, 2)\u300d   \u76f4\u63a5\u8c03\u7c7b\u540d\u5c31\u662f\u5efa\u5bf9\u8c61\n"
+        "  $(p.x)\n"
+        "\n"
+        "\u6ca1\u6709\u7ee7\u627f\uff0c\u6ca1\u6709 super\u3002"
+    ),
+    "global": (
+        "pyPython \u4f5c\u7528\u57df\u58f0\u660e\n"
+        "\n"
+        "  \u5168\u5c40 \u53d8\u91cf\u540d\n"
+        "\n"
+        "\u51fd\u6570\u91cc\u8d4b\u503c\u9ed8\u8ba4\u5efa**\u5c40\u90e8**\u53d8\u91cf\uff0c\n"
+        "\u60f3\u6539\u5168\u5c40\u5c31\u5f97\u5148\u58f0\u660e\u3002\n"
+        "\n"
+        "  g\u300c1\u300d\n"
+        "  def \u6539()\n"
+        "      \u5168\u5c40 g\u300c999\u300d\n"
+        "  \u6539()\n"
+        "  $(g)              \u8f93\u51fa 999\n"
+        "\n"
+        "\u4e0d\u58f0\u660e\u5c31\u662f\u5c40\u90e8\u7684\uff0c\u5916\u9762\u4e0d\u53d8\u3002"
+    ),
 }
 
 
@@ -206,6 +288,20 @@ class Calltip:
         first_word = re.split(r"[\s\u300c\u300d()\[\]$~\u00b7]+", stripped, 1)[0]
         if first_word in ("if", "else"):
             return "if"
+        # 第二版新增的四种块关键字各有一张卡片。
+        if first_word == "while":
+            return "while"
+        if first_word == "for":
+            return "for"
+        if first_word == "def":
+            return "def"
+        if first_word == "class":
+            return "class"
+        if first_word == "\u5168\u5c40":
+            return "global"
+        # return 没有自己的卡片，归到 def 那张里说明。
+        if first_word == "return":
+            return "def"
 
         # 2) 输出引导符 $ 后面跟 (
         if "$(" in stripped:

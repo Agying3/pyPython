@@ -44,4 +44,15 @@ testing = False  # Set True by test.test_idle.
 # 约束：这是 pyPython 的**唯一权威关键字表**，但现有代码里
 # colorizer / autocomplete / hyperparser / calltip 各自还有一份副本
 #（改造时逐文件改的）。收敛它们需要再动一轮，暂记于此。
-PYPYTHON_KEYWORDS = frozenset({"if", "else"})
+#
+# 第二版（循环/遍历/类/def）新增 8 个。注意 5 份副本**全部**要同步：
+#   pypython.py KEYWORDS / colorizer.py / autocomplete.py /
+#   hyperparser.py / pyparse.py PYPYTHON_BLOCK_OPENERS / calltip.py
+#   / pypython_ide.py —— 见 ADR-0007。
+PYPYTHON_KEYWORDS = frozenset({
+    "if", "else",
+    "while", "for", "in",
+    "def", "return",
+    "class", "self",
+    "全局",
+})

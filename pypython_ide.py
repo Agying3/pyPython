@@ -98,7 +98,13 @@ import pypython
 # 根因：IDLE 的 keyword 正则来自 PyParse 的 Python 关键字集，与本语言无关。
 # 修法：本表只列 pyPython 真实存在的关键字，宁少不滥。
 # **已验证**（_probe_highlight 逐个关键词检查着色标签）。
-PYPYTHON_KEYWORDS = ["if", "else"]
+PYPYTHON_KEYWORDS = [
+    "if", "else",
+    "while", "for", "in",
+    "def", "return",
+    "class", "self",
+    "全局",
+]
 
 # 运算符。`~` 和 `·` 是本语言特有的比较符，必须染色。
 PYPYTHON_OPERATORS = ["~", "\u00b7", "+", "-", "*", "/", "<", ">"]
@@ -357,10 +363,16 @@ IDENTIFIER_RE = _re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 # 补全列表里最前面的永远是这个语言的骨架。
 # 用户敲 Tab 时最想看到的就是这些。
+# 第二版加上了 while/for/def/class 这几个新的块关键字。
 COMPLETION_SKELETONS = [
     "if", "else",
+    "while", "for", "in",
+    "def", "return",
+    "class", "self",
+    "全局",
     "$(",
     "\u300c", "\u300d",
+    ".",
 ]
 
 
