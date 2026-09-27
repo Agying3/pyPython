@@ -1,0 +1,58 @@
+# === Python 编译产物 ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# === 打包/分发 ===
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# === 虚拟环境 ===
+.venv/
+venv/
+env/
+ENV/
+
+# === 测试与覆盖率 ===
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# === 编辑器 / IDE 自己的临时文件 ===
+# 注意：pypython_idle/ 是我们**要提交**的源码，不能整目录忽略。
+# 这里只忽略"我们的 IDE 产生的"临时产物，不忽略包本身。
+*.pypy.bak
+*~
+*.swp
+*.swo
+
+# === 操作系统 ===
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# === 本项目的临时验证脚本 ===
+# 开发过程中写的 _tmp_*.py 探针/验收脚本，跑完即删，不进版控。
+# 约定：任何以 _tmp_ 开头的文件都是一次性验证代码。
+_tmp_*.py
+_tmp_*.png
+_tmp_*.txt
+
+# === 改造前的旧版快照 ===
+# pypython_v1_backup.py 是 pypython.py 大改造之前的 1941 行旧版本
+#（当前已 2985 行）。没有任何代码引用它。
+# 用户决定：**保留文件在磁盘上，但不进版控**——
+# 它的价值是"想看看改造前长什么样"，而这件事 git 自己就做得了，
+# 提交进去只会让仓库多一份永远不会再改的死代码。
+pypython_v1_backup.py
+
+# === 用户自己玩的文件 ===
+# 演示/试手用的 pyPython 源码，不强制提交。
+demo.pypy
+scratch*.pypy
