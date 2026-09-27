@@ -105,7 +105,13 @@ SYNTAX_CARDS = {
         "  [1, \"a\", [2]]   \u53ef\u4ee5\u6df7\u7c7b\u578b\n"
         "\n"
         "\u7528 + \u62fc\u63a5\u4e24\u4e2a\u5217\u8868\u3002\n"
-        "\u4e0d\u652f\u6301\u4e0b\u6807\u8bbf\u95ee\u548c\u5207\u7247\u3002"
+        "\n"
+        "\u4e0b\u6807\uff08\u7b2c\u4e09\u7248\u65b0\u589e\uff09\uff1a\n"
+        "  xs[0]        \u7b2c\u4e00\u4e2a\n"
+        "  xs[-1]       \u6700\u540e\u4e00\u4e2a\n"
+        "  xs[1]\u300c9\u300d   \u6539\u7b2c\u4e8c\u4e2a\n"
+        "\n"
+        "\u4ecd\u7136\u6ca1\u6709\u5207\u7247\u3002"
     ),
     "string": (
         "pyPython \u5b57\u7b26\u4e32\n"
@@ -130,11 +136,14 @@ SYNTAX_CARDS = {
         "\n"
         "\u548c if \u4e00\u6837\u7528\u7f29\u8fdb\u5212\u5757\uff0c\u6ca1\u6709\u5192\u53f7\u3002\n"
         "\n"
-        "\u6ca1\u6709 break / continue\u3002\n"
-        "\u60f3\u8df3\u51fa\u5faa\u73af\u5c31\u53ea\u80fd\u8ba9\u6761\u4ef6\u53d8\u5047\u3002\n"
+        "break / continue\uff08\u7b2c\u4e09\u7248\u65b0\u589e\uff09\uff1a\n"
+        "  break     \u8df3\u51fa\u6700\u5185\u5c42\u5faa\u73af\n"
+        "  continue  \u8df3\u5230\u4e0b\u4e00\u8f6e\n"
         "\n"
         "  i\u300c0\u300d\n"
         "  while i < 3\n"
+        "      if i ~ 2\n"
+        "          break\n"
         "      $(i)\n"
         "      i\u300ci + 1\u300d"
     ),
@@ -144,14 +153,16 @@ SYNTAX_CARDS = {
         "  for \u53d8\u91cf in \u5217\u8868\n"
         "      \u8bed\u53e5\n"
         "\n"
-        "\u53ea\u80fd\u904d\u5386\u5217\u8868\u548c\u5b57\u7b26\u4e32\u3002\n"
+        "\u53ea\u80fd\u904d\u5386\u5217\u8868\u3001\u5b57\u7b26\u4e32\u548c\u5b57\u5178\u3002\n"
         "\u6ca1\u6709 range()\uff0c\u904d\u5386\u6570\u5b57\u4f1a\u62a5\u9519\u3002\n"
         "\n"
         "  for x in [1, 2, 3]\n"
         "      $(x)\n"
         "\n"
         "  for c in \"abc\"\n"
-        "      $(c)"
+        "      $(c)\n"
+        "\n"
+        "\u904d\u5386\u5b57\u5178\u65f6\u53d8\u91cf\u62ff\u5230\u7684\u662f key\uff08\u7b2c\u4e09\u7248\uff09\u3002"
     ),
     "def": (
         "pyPython \u51fd\u6570\n"
@@ -202,6 +213,72 @@ SYNTAX_CARDS = {
         "  $(g)              \u8f93\u51fa 999\n"
         "\n"
         "\u4e0d\u58f0\u660e\u5c31\u662f\u5c40\u90e8\u7684\uff0c\u5916\u9762\u4e0d\u53d8\u3002"
+    ),
+    # --- 第三版新增：下标 / 字典 / 逻辑 / 循环控制 -----------------------------
+    "index": (
+        "pyPython \u4e0b\u6807\n"
+        "\n"
+        "  \u5bb9\u5668[\u4e0b\u6807]\n"
+        "\n"
+        "\u5217\u8868\u6309\u4f4d\u7f6e\uff0c\u5b57\u5178\u6309 key\u3002\n"
+        "\n"
+        "  xs\u300c[10, 20, 30]\u300d\n"
+        "  $(xs[0])      \u8f93\u51fa 10\n"
+        "  $(xs[-1])     \u8f93\u51fa 30\n"
+        "\n"
+        "\u8d4b\u503c\uff1a\n"
+        "  xs[1]\u300c99\u300d     \u628a\u7b2c\u4e8c\u4e2a\u6539\u6210 99\n"
+        "\n"
+        "\u4e0b\u6807\u8d8a\u754c\u4f1a\u62a5\u9519\uff0c\u4e0d\u4f1a\u9759\u9ed8\u8fd4\u56de\u7a7a\u503c\u3002"
+    ),
+    "dict": (
+        "pyPython \u5b57\u5178\n"
+        "\n"
+        "  {\u300ckey\u300d: \u503c, \u300ckey2\u300d: \u503c2}\n"
+        "\n"
+        "key \u8981\u7528\u300c\u300d\u5305\u8d77\u6765\uff0c\u8ddf\u8d4b\u503c\u4e00\u6837\u3002\n"
+        "key \u548c\u503c\u4e4b\u95f4\u662f\u672c\u8bed\u8a00\u552f\u4e00\u7684\u5192\u53f7\u3002\n"
+        "\n"
+        "  d\u300c{}\u300d                    \u7a7a\u5b57\u5178\n"
+        "  d\u300c{\u300c\"a\"\u300d: 1}\u300d\n"
+        "  $(d[\"a\"])                   \u8f93\u51fa 1\n"
+        "  d[\"b\"]\u300c2\u300d                 \u65b0\u589e\u4e00\u9879\n"
+        "\n"
+        "\u6ca1\u6709 key \u65f6\u8bfb\u4f1a\u62a5\u9519\uff08\u4e0d\u4f1a\u81ea\u52a8\u5efa\uff09\u3002"
+    ),
+    "logic": (
+        "pyPython \u903b\u8f91\u8fd0\u7b97\n"
+        "\n"
+        "  a and b\n"
+        "  a or b\n"
+        "  not a\n"
+        "\n"
+        "\u7528\u5355\u8bcd\uff0c\u4e0d\u662f && || !\u3002\n"
+        "\n"
+        "\u4f1a\u77ed\u8def\uff1a\u53f3\u8fb9\u4e0d\u4e00\u5b9a\u4f1a\u7b97\u3002\n"
+        "\u8fd4\u56de\u7684\u662f**\u51b3\u5b9a\u7ed3\u679c\u7684\u90a3\u4e2a\u64cd\u4f5c\u6570**\uff0c\n"
+        "\u4e0d\u662f 1/0\uff08\u8ddf Python \u4e00\u6837\uff09\uff1a\n"
+        "  0 or 5   \u2192 5\n"
+        "  3 and 4  \u2192 4\n"
+        "\n"
+        "  x\u300cy or \u9ed8\u8ba4\u503c\u300d   \u5e38\u7528\u5199\u6cd5"
+    ),
+    "loopcontrol": (
+        "pyPython \u5faa\u73af\u63a7\u5236\n"
+        "\n"
+        "  break     \u8df3\u51fa\u6700\u5185\u5c42\u5faa\u73af\n"
+        "  continue  \u8df3\u5230\u4e0b\u4e00\u8f6e\n"
+        "\n"
+        "\u53ea\u80fd\u5199\u5728 while / for \u7684\u7f29\u8fdb\u5757\u91cc\u3002\n"
+        "\u5199\u5728\u5faa\u73af\u5916\u9762\u4f1a\u5728**\u89e3\u6790\u65f6**\u62a5\u9519\uff0c\n"
+        "\u4e0d\u4f1a\u7b49\u5230\u8fd0\u884c\u5230\u90a3\u4e00\u884c\u3002\n"
+        "\n"
+        "\u51fd\u6570\u4f53\u91cc\u7684 break \u4e0d\u80fd\u8df3\u51fa\u8c03\u7528\u65b9\u7684\u5faa\u73af\u3002\n"
+        "\n"
+        "  for v in [1, 2, 3, 4]\n"
+        "      if v ~ 2\n"
+        "          continue\n"
+        "      $(v)          \u8f93\u51fa 1 3 4"
     ),
 }
 
@@ -302,13 +379,29 @@ class Calltip:
         # return 没有自己的卡片，归到 def 那张里说明。
         if first_word == "return":
             return "def"
+        # 第三版新增：break / continue 共用一张"循环控制"卡片。
+        # 约束：放在 while/for 判断**之后**——它们是行首关键字，
+        # 但跟 while 不冲突（首词不同）。
+        if first_word in ("break", "continue"):
+            return "loopcontrol"
 
         # 2) 输出引导符 $ 后面跟 (
         if "$(" in stripped:
             return "print"
 
-        # 3) 列表字面量
+        # 3) 字典字面量。约束：必须在列表判断**之前**——
+        #    字典和列表都用方括号以外的符号，但字典的 key 里
+        #    可能含 `[`（比如「{"a": [1]}」），先判列表会挑错卡片。
+        if "{" in stripped:
+            return "dict"
+
+        # 3b) 列表字面量或下标访问。
+        #     第三版：`[` 现在既可能是列表字面量，也可能是下标。
+        #     判据：`[` 前面紧挨着一个名字/`)`/`]` 就是下标，
+        #     否则（行首、逗号后、`(` 后）是列表字面量。
         if "[" in stripped:
+            if re.search(r"[\w\u300d\)\]]\s*\[", stripped):
+                return "index"
             return "list"
 
         # 4) 双引号（字符串）
@@ -318,6 +411,12 @@ class Calltip:
         # 5) 比较运算符
         if "~" in stripped or "\u00b7" in stripped:
             return "compare"
+
+        # 5b) 逻辑运算符。约束：放在比较**之后**——
+        #     `a ~ b and c` 这种写法提示比较更有用（比较是新手更容易写错的）。
+        #     这里用整词匹配，避免把 `android` 这种名字里的 and 判成运算符。
+        if re.search(r"(?<![\w])(and|or|not)(?![\w])", stripped):
+            return "logic"
 
         # 6) 有「」就是赋值
         if "\u300c" in stripped:

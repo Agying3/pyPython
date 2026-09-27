@@ -257,7 +257,19 @@ RE_IDENT = re.compile(r"^[^\W\d]\w*$", re.UNICODE)
 # 现状：花括号 { } 与分号 ; 已被移除——新语法用缩进断句，不再需要它们。
 # 但保留识别能力会让"旧写法"静默通过，所以这里也不认它们，写错就报错。
 # 新增：「」 $ ~ · 四个符号，对应赋值括号、输出、等于、不等于。
-RE_SYMBOL = re.compile(r"^[()「」$+\*/<>~·!\[\],.-]+$")
+#
+# #29「改这个正则加 {} 和 : 时把 '-' 漏掉了，于是所有减法/负数都报
+#      "正则层拒绝了这个符号 '-'"」
+# {曾出现：v3 改完跑回归，阶乘、fib、深度测试全挂}
+# {根因：我重写字符类时凭记忆写了一遍，把原本在集合里的 '-' 漏了。
+#  这个字符类里 '-' 必须放在**最后一位**（否则会被当成范围符，
+#  比如 `+-\*` 会被读成"从 + 到 * 的范围"）。原来的写法是
+#  `...,.-]`——点、连字符、收尾方括号，正好把 '-' 放在最后。
+#  我改成 `...,\{\}:]` 的时候顺手把 '-' 删了。}
+# {教训：这类"一长串符号的字符类"改动，靠肉眼核对是不可靠的——
+#  必须跑一遍会用到每个符号的回归。这次是回归测试先发现的。}
+# **已验证**（tests/run_all.py 全绿）。
+RE_SYMBOL = re.compile(r"^[()「」$+\*/<>~·!\[\],.\{\}:-]+$")
 
 # 能开启一条新语句的 token 类型。
 #
@@ -270,6 +282,11 @@ RE_SYMBOL = re.compile(r"^[()「」$+\*/<>~·!\[\],.-]+$")
 STATEMENT_KEYWORDS = frozenset({
     "KW_IF", "KW_WHILE", "KW_FOR", "KW_DEF",
     "KW_RETURN", "KW_CLASS", "KW_GLOBAL",
+    # 第三版：break / continue 也是独立语句（不带表达式），
+    # 所以它们能开启一条新语句，必须进这个集合。
+    # 注意 and / or / not **不在这里**——它们是**表达式**运算符，
+    # 不能单独成句。加进来会让 `not` 被当成语句开头，破坏 `if not x`。
+    "KW_BREAK", "KW_CONTINUE",
 })
 
 # 数字 → 二进制串 的转换表（用于输出阶段，见层 7）
@@ -549,6 +566,42 @@ class ReturnSignal(Exception):
         self.value = value
 
 
+class BreakSignal(Exception):
+    """break 语句的载体。
+
+    {意图：增加复杂度} —— 用异常跳出一层循环。
+
+    #25「`break` 写在 `if` 里时，跳出的是 if 而不是循环」
+    {曾出现：加 break 之后的第一轮测试——`while` 里套 `if ... break`，
+     结果循环没停，只是 if 提前结束了。}
+    {根因：最初想省事，在 _do_if 里也写了 except BreakSignal。
+     但 break 的语义是"跳出最近的**循环**"，if 不是循环，
+     它没有资格接住这个信号。}
+    {修法：只有 _do_while 和 _do_for 接 BreakSignal，
+     其他任何地方都不接——让它一路冒泡到最近的循环。
+     这条规则跟 Python 一致：语法上 break 就只能出现在循环里。}
+    **已验证**（tests/test_loop_control.py 的"break 在 if 里"用例）。
+    """
+
+    def __init__(self):
+        Exception.__init__(self, "break")
+
+
+class ContinueSignal(Exception):
+    """continue 语句的载体。
+
+    {意图：增加复杂度} —— 跟 break 分开成两个异常类，
+    这样"谁该接住谁"在代码里一眼可辨。合并成一个类再带个标志位
+    会更省事，但那样 _do_while 里就得多一层 if 判断——
+    多一个类换少一个 if，符合本项目"结构复杂、分支简单"的口味。
+
+    约束：ContinueSignal 也**只能**被循环接住，理由同 BreakSignal。
+    """
+
+    def __init__(self):
+        Exception.__init__(self, "continue")
+
+
 def dirty_attribute_message(instance, name):
     """实例上没有这个属性时，给一个尽量有用的报错。
 
@@ -605,8 +658,58 @@ class PyPyValue:
 
         {意图：增加复杂度} —— 这个函数体只有一行，完全可以删掉，
         但删掉之后调用栈就少了 1 层，那是不可接受的。
+
+        约束：**只有数字能走这里**。字典、函数、类、实例都没有
+        "数值"可言，对它们调本方法会抛 Python 的 TypeError
+        （"'dict' object ..."），那是宿主实现的错误信息，
+        不该让用户看到。要判真值请用 truth_number()。
         """
         return self.magnitude()
+
+    def truth_number(self) -> float:
+        """给"任何值"一个用于判真假的数字代用值。
+
+        为什么需要这个方法：本语言的规则是"任何值都要经过真值密室"，
+        而密室只认数字。于是每一类值都得找个数字来代表它：
+
+            数字     → 它自己
+            字符串   → 长度
+            列表     → 元素个数
+            字典     → 键值对个数
+            函数/类/实例 → 0（它们没有"多少"可言，一律当假）
+
+        {意图：增加复杂度} —— 这套映射在语义上毫无依据
+        （"长度 3"被判成 TRUE 又怎样？），唯一的作用是
+        让"任何值都必须经过密室"这条规则不被类型破坏。
+
+        #28「`if 字典` 和 `not 字典` 抛 TypeError: float() argument
+             must be a string or a real number, not 'dict'」
+        {曾出现：v3 的字典探针，"字典当条件"与"字典走 not"两个用例}
+        {根因：判真值的地方一律写 raw.decoded()，
+         而 decoded() → magnitude() → float(raw) 只对数字成立。
+         字符串和列表能"侥幸"工作是因为它们的判真值路径
+         （transmute_output）走的是 len()，绕开了 decoded()；
+         但 if 和逻辑运算直接调 decoded()，字典一进去就炸。}
+        {修法：把"取判真值用的数字"这件事收进本方法，
+         四类值各给一个代用值；上述四处调用点统一改调它。}
+        **已验证**（_probe_dict.py 的两个用例由 ERR 变 OK）。
+        """
+        raw = self.raw
+        if isinstance(raw, (PyPyFunction, PyPyClass, PyPyInstance)):
+            # 这三样没有"多少"可言。给 0 就是一律判假——
+            # 刻意不按"参数个数/方法数/属性数"来判，
+            # 因为那样 `if 某个函数` 会因为参数多而变真，太容易误解。
+            return 0.0
+        if isinstance(raw, str):
+            length = 0
+            for _ in raw:
+                length = length + 1
+            return float(length)
+        if isinstance(raw, list):
+            return float(len(raw))
+        if isinstance(raw, dict):
+            return float(len(raw))
+        return self.decoded()
 
     def encode(self) -> str:
         """编码成字符串以便存进 Registry。
@@ -619,6 +722,7 @@ class PyPyValue:
         约束：数字以外的类型要各走各的前缀，且**必须**能原样解回来。
         S<长度>:<内容>   字符串
         L<个数>:<元素...> 列表
+        D<对数>:<k><v><k><v>...  字典
         N:<数值>         数字
 
         #12「加了字符串/列表之后，decode 用 `^N:` 的正则去匹配 S: 开头的串，
@@ -654,6 +758,30 @@ class PyPyValue:
                 pieces.append(item.encode())
             joined = ",".join(pieces)
             return "L" + str(len(raw)) + ":" + joined
+
+        # --- 字典 --------------------------------------------------------------
+        # 编码：D<对数>:<k1编码><v1编码>,<k2编码><v2编码>,...
+        #
+        # 约束：key 和 value 都用**完整的 encode 往返**，
+        # 所以 key 本身可以是数字、甚至是列表（虽然没意义）。
+        # 边界由各自的长度/个数前缀界定，跟列表一样不依赖分隔符。
+        #
+        # 键的顺序：按 Python dict 的插入序原样写出。
+        # 解码时会重建一个 dict，所以**键的顺序会被保留**
+        #（CPython 3.7+ 保证 dict 有序）——这点在输出里能看出来。
+        if isinstance(raw, dict):
+            pieces = []
+            for key in raw:
+                # 约束：raw 是 Python 的原生 dict，所以 key 是**原始值**
+                #（字符串或数字），value 是 PyPyValue。
+                # 两边类型不一样，必须各自包一次——我第一版直接对 key
+                # 调 .encode()，于是字符串 key 报
+                # "sequence item 0: expected str instance, bytes found"，
+                # 数字 key 报 "'int' object has no attribute 'encode'"。
+                pieces.append(PyPyValue(key).encode())
+                pieces.append(raw[key].encode())
+            joined = ",".join(pieces)
+            return "D" + str(len(raw)) + ":" + joined
 
         # --- 函数 / 类 / 实例 -------------------------------------------------
         #
@@ -713,6 +841,30 @@ class PyPyValue:
                         cursor = cursor + consumed
                     return PyPyValue(items)
 
+        # --- 字典：D<对数>:<k><v><k><v>... -----------------------------------
+        # 约束：key 必须是可哈希的值。数字和字符串都可以。
+        # 如果解出来的 key 是列表（不可哈希），转成 tuple 会失败——
+        # 那种情况抛 ValueError，**不静默跳过**（#12/#13 的教训）。
+        if blob.startswith("D"):
+            colon = blob.find(":")
+            if colon > 0:
+                count_text = blob[1:colon]
+                if count_text.isdigit():
+                    size = int(count_text)
+                    body = blob[colon + 1:]
+                    pairs = []
+                    cursor = 0
+                    for _ in range(size):
+                        key, used_key = PyPyValue._decode_one(body, cursor)
+                        cursor = cursor + used_key
+                        val, used_val = PyPyValue._decode_one(body, cursor)
+                        cursor = cursor + used_val
+                        pairs.append((key, val))
+                    built = {}
+                    for key, val in pairs:
+                        built[PyPyValue._hashable(key.raw)] = val
+                    return PyPyValue(built)
+
         # --- 函数 / 类 / 实例：从旁路登记表按编号取回 -------------------------
         # 约束：编号必须存在。取不到就抛，**不返回 0**——#12/#13 的教训。
         if blob[:1] in ("F", "C", "O"):
@@ -737,6 +889,25 @@ class PyPyValue:
 
         # 全都匹配不上。**不再静默返回 0**——那是 #12/#13 的根源。
         raise ValueError("无法解码的值：" + repr(blob))
+
+    @staticmethod
+    def _hashable(raw):
+        """把字典的 key 变成一个可哈希的东西。
+
+        约束：本语言的 key 允许是数字或字符串（文档里就这么写的）。
+        列表不是合法 key——但**不能让 Python 直接抛 TypeError**，
+        那样错误信息会漏出宿主实现（"unhashable type: 'list'"），
+        用户看不懂。所以这里翻译成我们自己的话。
+        """
+        if isinstance(raw, list):
+            raise ValueError(
+                "列表不能当字典的 key"
+                "（列表本身可以被修改，拿它当 key 会导致"
+                "两个看起来一样的列表找不到对方）"
+            )
+        if isinstance(raw, dict):
+            raise ValueError("字典不能当字典的 key")
+        return raw
 
     @staticmethod
     def _decode_one(blob, start):
@@ -791,6 +962,23 @@ class PyPyValue:
                 cursor = cursor + used
             consumed = skipped + colon + 1 + cursor
             return PyPyValue(items), consumed
+
+        # 字典：跟列表同构，只是元素按 key/value 成对读。
+        if remaining.startswith("D"):
+            colon = remaining.find(":")
+            count_text = remaining[1:colon]
+            size = int(count_text)
+            body = remaining[colon + 1:]
+            built = {}
+            cursor = 0
+            for _ in range(size):
+                key, used_key = PyPyValue._decode_one(body, cursor)
+                cursor = cursor + used_key
+                val, used_val = PyPyValue._decode_one(body, cursor)
+                cursor = cursor + used_val
+                built[PyPyValue._hashable(key.raw)] = val
+            consumed = skipped + colon + 1 + cursor
+            return PyPyValue(built), consumed
 
         # 数字：读到逗号或字符串结尾为止
         stop = remaining.find(",")
@@ -856,6 +1044,20 @@ KEYWORDS = {
     # 作用域声明用中文反而比造一个生僻英文词更好打。
     # 用户定的是 Python 模式：函数内赋值默认是局部的，想改全局要显式声明。
     "全局": "KW_GLOBAL",
+    # --- 第三版：逻辑运算符 + 循环控制 ---------------------------------------
+    #
+    # and / or / not 用**词**而不是 && / || / !：
+    #   · 跟 `in` 一样，本语言倾向用英文词表达运算（`for x in xs`）
+    #   · `!` 在 RE_SYMBOL 里已经留了位置但没用上，加进来会跟 `·` 视觉混淆
+    #   · 中文输入法下 `&` `|` 反而不好打
+    "and": "KW_AND",
+    "or": "KW_OR",
+    "not": "KW_NOT",
+    # break / continue 跟 return 一样是裸词。
+    # 约束：这两个只在循环体内合法，而且在循环外出现**必须报错**
+    #（Python 是语法错，我们也在解析期拦，见 _stmt_break）。
+    "break": "KW_BREAK",
+    "continue": "KW_CONTINUE",
 }
 
 # 单字符符号集合。
@@ -871,8 +1073,14 @@ KEYWORDS = {
 #   ·    不等于（Shift 打出来）
 #   > <  照旧
 #   + - * / ( ) 算术与分组
-# 约束：'.' 只当小数点，**不**当比较符（用户明确否决了兼容写法）。
-SINGLE_SYMBOLS = "()+-*/<>~·「」$[],."
+#   []   下标与列表字面量。xs[0] 取第 0 个，[1, 2] 是列表。
+#   {}   字典字面量。{「a」: 1} —— key 用「」包起来（跟赋值的括号同一对），
+#        `:` 分隔 key 和值。这样**不需要发明新符号**，只借用了冒号。
+#   ,    分隔元素 / 参数 / 字典项
+#   .    属性访问 self.x / p.长度()
+#
+# 约束：'.' 只当小数点和属性访问，**不**当比较符（用户明确否决了兼容写法）。
+SINGLE_SYMBOLS = "()+-*/<>~·「」$[],.{}:"
 
 
 class TokenEnvelope:
@@ -1692,6 +1900,140 @@ class BlockStmt(Node):
         self.statements = statements
 
 
+# =====================================================================================
+# 第三版新增的节点：下标、字典、逻辑运算、循环控制
+# =====================================================================================
+
+
+class IndexNode(Node):
+    """下标访问：`列表[下标]` 或 `字典[key]`。
+
+    {意图：增加复杂度} —— 这就是用户抱怨的"没有下标"。
+    实现上刻意让**索引本身也是一个任意表达式**（不只是数字字面量），
+    于是 `xs[i + 1]` 这种写法能work，代价是每次取值都要：
+      求值索引 → 走一遍 encode/decode 往返确认它是个整数 → 再取。
+    正常的语言会把索引留在寄存器里，这里偏要让它变成字符串再变回来。
+
+    约束：同一个节点既服务于列表（按位置取）也服务于字典（按 key 取），
+    运行时按**容器的实际类型**分派。所以 `xs["a"]` 在列表上会报错，
+    在字典上就能用——错误在运行期才暴露，不在解析期。
+    """
+
+    def __init__(self, target, index, line, column):
+        Node.__init__(self, line, column)
+        self.target = target
+        self.index = index
+
+
+class DictNode(Node):
+    """字典字面量：`{「key」: 值, 「key2」: 值2}`。
+
+    {意图：增加复杂度} —— key 用「」包起来，复用赋值的括号，
+    这样**不用发明新符号**。`: ` 是分隔符（本语言唯一的冒号用法）。
+
+    约束：空字典写成 `{}`。注意这跟"空块"在视觉上不冲突——
+    本语言没有花括号块，`{}` 只可能是字典。
+
+    值的顺序：按源码里写的顺序存进 Python dict（3.7+ 保序），
+    所以输出时顺序是稳定的、可预测的。
+    """
+
+    def __init__(self, pairs, line, column):
+        Node.__init__(self, line, column)
+        self.pairs = pairs
+
+
+class IndexAssignStmt(Node):
+    """下标赋值：`列表[下标]「表达式」` 或 `字典[key]「表达式」`。
+
+    {意图：增加复杂度} —— 这是本语言的**第四种**赋值路径了：
+      1. AssignStmt       普通变量 → Registry 字符串往返
+      2. AttrAssignStmt   属性     → 实例上的 Python dict
+      3. IndexAssignStmt  下标     → 容器内部的元素
+      4. GlobalStmt       作用域声明（严格说不算赋值）
+    四种写法里左边都长得差不多，但背后是四套存储。
+
+    字段说明（#30 改过）：
+      target 是**整个下标表达式节点**（一个 IndexNode），不是拆开的
+      "容器"和"下标"两部分。原先拆开存（target=容器, index=下标），
+      遇到 `m[0][1]` 这种嵌套下标就会把中间层当容器，
+      往一个临时副本上写、写完就丢（见 _finish_index_target 的 #30）。
+      现在整棵树一起存，运行期各自求值，嵌套自然就对。
+    """
+
+    def __init__(self, target, expr, line, column):
+        Node.__init__(self, line, column)
+        self.target = target
+        self.expr = expr
+
+
+class LogicNode(Node):
+    """逻辑运算：`and` / `or`。
+
+    {意图：增加复杂度} —— 做了**短路**求值（跟 Python 一致），
+    但短路判断本身要经过真值密室的完整审问流程——
+    也就是说 `a and b` 里的 a 会被判定一次真伪，
+    而不是简单地看它是不是 0。
+
+    注意返回值：跟 Python 一样，返回的是**决定结果的那个操作数本身**，
+    不是布尔值。所以 `0 or 5` 得到 5，`3 and 4` 得到 4。
+    这不是偷懒，是为了让 `x「y or 默认值」` 这种写法能用。
+    """
+
+    def __init__(self, op, left, right, line, column):
+        Node.__init__(self, line, column)
+        self.op = op
+        self.left = left
+        self.right = right
+
+
+class NotNode(Node):
+    """逻辑非：`not 表达式`。
+
+    {意图：增加复杂度} —— 结果**不是**布尔，而是数字 1 或 0。
+    本语言没有独立的布尔类型（真值只是数字在密室里的一个判定结果），
+    所以 `not x` 返回 1/0，可以继续参与算术。
+    `$(not 0)` 输出 1，`$(not 0) + 1` 输出 2。
+    """
+
+    def __init__(self, operand, line, column):
+        Node.__init__(self, line, column)
+        self.operand = operand
+
+
+class BreakStmt(Node):
+    """`break` —— 跳出**最内层**循环。
+
+    {意图：增加复杂度} —— 跟 return 一样用 Python 异常传达控制流
+    （BreakSignal），而不是返回一个标记让每层循环自己检查。
+    用异常的好处是嵌套多少层都能一次跳出去；
+    坏处是每次 break 都要真的展开一次调用栈。
+
+    约束：只在循环体内合法。在循环外出现时**在解析期**就报错，
+    不留给运行期——因为"这条语句永远不会被执行到"这种错误
+    在运行期才报的话，用户得先跑到那里才知道。
+    """
+
+    def __init__(self, line, column):
+        Node.__init__(self, line, column)
+
+
+class ContinueStmt(Node):
+    """`continue` —— 跳到**最内层**循环的下一次迭代。
+
+    约束：跟 break 一样只在循环体内合法。
+
+    {意图：增加复杂度} —— continue 不抛异常跳出去，
+    而是抛一个 ContinueSignal，由**最内层**的循环接住并继续。
+    这里刻意让 while 和 for 各接一次，于是嵌套循环时
+    continue 只会被最内层吃掉——行为跟 Python 一致，
+    但实现上多绕了一层异常。
+    """
+
+    def __init__(self, line, column):
+        Node.__init__(self, line, column)
+
+
 class ParseError(Exception):
     def __init__(self, message, line, column, source_line=""):
         super().__init__(message)
@@ -1762,6 +2104,9 @@ class Parser:
         # 上一个解析出来的原子是不是"从括号里出来的"。
         # 并排即相乘靠这个标志判断，见 _juxtapose 里的 #7 注释。
         self.last_atom_was_paren = False
+        # 当前嵌套在几层循环里。break / continue 靠它做解析期的合法性检查。
+        # 见 _stmt_break 的 #26。0 表示"不在任何循环里"。
+        self.loop_depth = 0
 
     # -- 游标 ------------------------------------------------------------------------
 
@@ -1893,11 +2238,16 @@ class Parser:
         修法：改用"左侧操作数是否来自括号"这个**结果属性**来判断，
         由 _atom 在解析完 '(...)' 后设置 self.last_atom_was_paren。
         **已验证**（main 用例 1 与 _tmp_run_probe.py 全部 13 例）。
+
+        第三版：下面调的不再是 _compare 而是 _or。
+        于是完整的链变成 并排相乘 → or → and → 比较 → 加减 → 乘除 → 一元 → 原子。
+        11 层装饰性优先级仍然在这条链的**上面**（_l11 → _l1 → 这里），
+        一层没删——只是真正干活的那截变长了。
         """
-        node = self._compare()
+        node = self._or()
         # 只有当左边那个原子确实是从括号里解析出来的时候，才允许并排相乘。
         while self.last_atom_was_paren and self._starts_operand():
-            right = self._compare()
+            right = self._or()
             op_node = BinOpNode("*", node, right, node.line, node.column)
             op_node.reify()
             self.book.mint("解析:并排相乘")
@@ -1920,9 +2270,9 @@ class Parser:
         "后面还跟不跟操作数"判断上做错决定。
         """
         env = self._cur()
-        if env.kind in ("NUMBER", "IDENT", "KW_SELF"):
+        if env.kind in ("NUMBER", "IDENT", "KW_SELF", "STRING", "KW_NOT"):
             return True
-        if env.kind == "SYMBOL" and env.lexeme == "(":
+        if env.kind == "SYMBOL" and env.lexeme in ("(", "[", "{"):
             return True
         return False
 
@@ -1984,8 +2334,24 @@ class Parser:
             return node
 
     def _unary(self):
-        """一元负号：-x。"""
+        """一元负号：-x，以及逻辑非 not x。
+
+        第三版：`not` 加在这一层。优先级上 `not` 比比较运算低、
+        比 `and` 高——跟 Python 一致：`not a ~ b` 是 `not (a ~ b)`。
+
+        约束：`not` 后面跟的仍然是 _unary（而不是 _atom），
+        所以 `not not x` 合法、`- not x` 也合法（虽然没意义）。
+        这么接是为了少写一个专门的方法——多一层就多一次记账，
+        但本项目已经有三层装饰性的空转，没必要再加。
+        """
         env = self._cur()
+        if env.kind == "KW_NOT":
+            op_env = self._bump()
+            operand = self._unary()
+            node = NotNode(operand, op_env.line, op_env.column)
+            node.reify()
+            self.book.mint("解析:逻辑非")
+            return node
         if env.kind == "SYMBOL" and env.lexeme == "-":
             op_env = self._bump()
             operand = self._unary()
@@ -1994,6 +2360,43 @@ class Parser:
             self.book.mint("解析:一元负号")
             return node
         return self._atom()
+
+    def _and(self):
+        """逻辑与：`a and b`，左结合。
+
+        {意图：增加复杂度} —— 短路求值在**运行期**做（见 _do_logic），
+        解析期只负责建节点。所以这里跟加减乘除长得一模一样，
+        区别只在 op 的名字。
+        """
+        node = self._compare()
+        while True:
+            env = self._cur()
+            if env.kind == "KW_AND":
+                op_env = self._bump()
+                right = self._compare()
+                node = LogicNode("and", node, right, op_env.line, op_env.column)
+                node.reify()
+                self.book.mint("解析:逻辑与")
+                continue
+            return node
+
+    def _or(self):
+        """逻辑或：`a or b`，左结合。
+
+        约束：这一层必须在 _and **之上**（先调 _and），
+        这样 `a or b and c` 解析成 `a or (b and c)`——跟 Python 一致。
+        """
+        node = self._and()
+        while True:
+            env = self._cur()
+            if env.kind == "KW_OR":
+                op_env = self._bump()
+                right = self._and()
+                node = LogicNode("or", node, right, op_env.line, op_env.column)
+                node.reify()
+                self.book.mint("解析:逻辑或")
+                continue
+            return node
 
     def _atom(self):
         """原子：数字、标识符、或者括号表达式。
@@ -2061,6 +2464,35 @@ class Parser:
                 self.last_atom_was_paren = False
                 continue
 
+            # --- 下标：容器[索引] ---
+            #
+            # 约束：下标是**后缀**，所以能跟属性和调用串起来：
+            #     xs[0].长度()     先取下标，再取属性
+            #     f()[0]           先调用，再取下标
+            # 处理顺序就按源码里从左到右，循环天然支持。
+            #
+            # 注意 `[` 只在**后缀位置**才是下标。行首/表达式开头的 `[`
+            # 是列表字面量，那条路走 _atom_base，不会到这里。
+            if env.kind == "SYMBOL" and env.lexeme == "[":
+                # 只有"能取下标的东西"后面才跟下标。数字后面跟 `[`
+                # （比如 `5[0]`）语法上是允许的，留到运行期报
+                # "数字不能取下标"——那样错误信息更贴近用户写的代码。
+                if not isinstance(node, (IdentNode, AttrNode, IndexNode, CallNode2,
+                                         ListNode, StringNode, DictNode)):
+                    break
+                open_env = self._bump()
+                self.book.mint("解析:下标开括号")
+                index = self._l11()
+                if not (self._is("SYMBOL") and self._cur().lexeme == "]"):
+                    self._fail("下标缺少收尾的 ']'（从第 %d 行第 %d 列开始）"
+                               % (open_env.line, open_env.column))
+                self._bump()
+                self.book.mint("解析:下标闭括号")
+                node = IndexNode(node, index, node.line, node.column)
+                node.reify()
+                self.last_atom_was_paren = False
+                continue
+
             # --- 属性访问：对象.属性 ---
             if env.kind == "SYMBOL" and env.lexeme == ".":
                 self._bump()
@@ -2123,6 +2555,9 @@ class Parser:
 
         if env.kind == "SYMBOL" and env.lexeme == "[":
             return self._list_literal()
+
+        if env.kind == "SYMBOL" and env.lexeme == "{":
+            return self._dict_literal()
 
         if env.kind == "SYMBOL" and env.lexeme == "(":
             open_env = self._bump()
@@ -2192,7 +2627,84 @@ class Parser:
         self.last_atom_was_paren = False
         return node
 
-    # -- 语句 ------------------------------------------------------------------------
+    def _dict_literal(self):
+        """字典字面量：`{「key」: 值, 「key2」: 值2}`，空字典是 `{}`。
+
+        语法决策（见 ADR-0008）：key 用 `「」` 包起来，复用赋值的括号，
+        这样**不用发明新符号**。`: ` 是 key 和值的分隔符。
+
+        约束：key 写成 `「表达式」`，所以 key 可以是任意表达式——
+        包括一个变量（`k「"a"」` 然后 `{「k」: 1}` 会展开成 `{"a": 1}`）。
+        这不是特意的功能，是"复用赋值括号"的自然结果。
+        运行期会校验 key 可哈希（列表不行），见 PyPyValue._hashable。
+
+        {意图：增加复杂度} —— 空字典、非空字典分开写两条路径，
+        而且每一项都要单独记一次账（开括号、key 闭、冒号、值、逗号）。
+        一个三项的字典在账本上留 15 条记录，其中一半是重复的。
+        """
+        open_env = self._bump()  # 吃掉 '{'
+        self.book.mint("解析:字典开花括号")
+
+        pairs = []
+        # 空字典：`{}` 直接收工。
+        if self._is("SYMBOL") and self._cur().lexeme == "}":
+            self._bump()
+            self.book.mint("解析:字典闭花括号")
+            node = DictNode(pairs, open_env.line, open_env.column)
+            node.reify()
+            self.last_atom_was_paren = False
+            return node
+
+        while True:
+            if self._is("EOF"):
+                raise ParseError(
+                    "字典没有闭合（从第 %d 行 第 %d 列 的 '{' 开始）"
+                    % (open_env.line, open_env.column),
+                    open_env.line,
+                    open_env.column,
+                    self._line_text(open_env.line),
+                )
+            # --- key：必须是「表达式」---
+            if not (self._is("SYMBOL") and self._cur().lexeme == "「"):
+                self._fail("字典的 key 要用「」包起来，比如 {「\"a\"」: 1}")
+            self._bump()  # 吃掉 '「'
+            self.book.mint("解析:字典 key 开")
+            key_expr = self._l11()
+            if not (self._is("SYMBOL") and self._cur().lexeme == "」"):
+                self._fail("字典 key 缺少收尾的 '」'")
+            self._bump()  # 吃掉 '」'
+            self.book.mint("解析:字典 key 闭")
+
+            # --- 冒号 ---
+            if not (self._is("SYMBOL") and self._cur().lexeme == ":"):
+                self._fail("字典的 key 和值之间要用 ':' 分隔")
+            self._bump()
+            self.book.mint("解析:字典冒号")
+
+            # --- value：任意表达式 ---
+            value_expr = self._l11()
+            pairs.append((key_expr, value_expr))
+            self.book.mint("解析:字典项")
+
+            # --- 分隔 ---
+            if self._is("SYMBOL") and self._cur().lexeme == ",":
+                self._bump()
+                self.book.mint("解析:字典逗号")
+                # 允许尾随逗号 `{「a」: 1,}`——跟列表保持一致。
+                if self._is("SYMBOL") and self._cur().lexeme == "}":
+                    break
+                continue
+            if self._is("SYMBOL") and self._cur().lexeme == "}":
+                break
+            self._fail("字典项之间要用 ',' 分隔")
+
+        self._bump()  # 吃掉 '}'
+        self.book.mint("解析:字典闭花括号")
+        node = DictNode(pairs, open_env.line, open_env.column)
+        node.reify()
+        # 跟列表一样，不开启并排相乘（`{} 3` 没有意义）。
+        self.last_atom_was_paren = False
+        return node
 
     def parse(self):
         """program ::= { statement } EOF
@@ -2371,19 +2883,84 @@ class Parser:
             return self._stmt_class()
         if kind == "KW_GLOBAL":
             return self._stmt_global()
+        if kind == "KW_BREAK":
+            return self._stmt_break()
+        if kind == "KW_CONTINUE":
+            return self._stmt_continue()
         self._fail("内部错误：_stmt_keyword 不认识 " + repr(kind))
+
+    def _stmt_break(self):
+        """`break` —— 跳出最内层循环。
+
+        约束：**在解析期**检查它是不是真的在循环里（见 #26）。
+        这样"循环外写 break"会在解析时立刻报错，而不是等到运行到那一行。
+
+        #26「`break` 写在函数里的循环外，直到运行到才报错」
+        {曾出现：加 break 之后的第一轮测试，把 break 写在函数体里
+         但不在循环里，程序"正常解析"，跑到那一行才炸。}
+        {根因：最初的实现只管解析、不管上下文，
+         循环合法性留到运行期由异常冒泡来发现——于是
+         一段永远不会执行到的 break 根本不报错。}
+        {修法：解析期维护 self.loop_depth，解析循环体时 +1，
+         解析 break/continue 时检查 >0，否则当场 ParseError。}
+        **已验证**（tests/test_loop_control.py 的"循环外 break"用例）。
+        """
+        env = self._bump()  # 吃掉 'break'
+        if self.loop_depth <= 0:
+            raise ParseError(
+                "break 只能写在循环里面（while 或 for 的缩进块内）",
+                env.line,
+                env.column,
+                self._line_text(env.line),
+            )
+        self._want_newline()
+        node = BreakStmt(env.line, env.column)
+        node.reify()
+        self.book.mint("解析:break 语句")
+        return node
+
+    def _stmt_continue(self):
+        """`continue` —— 跳到最内层循环的下一次迭代。
+
+        约束：跟 break 一样在解析期检查循环上下文。
+        """
+        env = self._bump()  # 吃掉 'continue'
+        if self.loop_depth <= 0:
+            raise ParseError(
+                "continue 只能写在循环里面（while 或 for 的缩进块内）",
+                env.line,
+                env.column,
+                self._line_text(env.line),
+            )
+        self._want_newline()
+        node = ContinueStmt(env.line, env.column)
+        node.reify()
+        self.book.mint("解析:continue 语句")
+        return node
 
     def _stmt_while(self):
         """while 循环：`while 条件 <缩进块>`
 
         约束：循环体复用 if 的 _block()，所以缩进规则完全一致。
-        没有 break / continue —— 用户没要，而且本语言连分号都没有，
-        再加两个跳出关键字会让语法表继续膨胀。
+        第三版加了 break / continue（用户要求）。
+
+        实现要点：解析循环体之前先把 self.loop_depth +1，
+        解析完再 -1。这样循环体内的 break/continue 才算"在循环里"。
+        嵌套循环时深度会累加，但 break 只关心"是不是 >0"——
+        具体跳出哪一层由**运行期**的异常决定（最内层先接住）。
         """
         self._bump()  # 吃掉 'while'
         cond = self._l11()
         self._want_newline()
-        body = self._block()
+        # 循环体：深度 +1，让里面的 break/continue 合法。
+        self.loop_depth = self.loop_depth + 1
+        try:
+            body = self._block()
+        finally:
+            # 约束：用 finally 保证即使 _block 抛 ParseError 也能把
+            # 深度还回去——否则一次解析失败会污染后续所有解析
+            #（同一个 Parser 实例被复用时尤其明显）。
+            self.loop_depth = self.loop_depth - 1
         node = WhileStmt(cond, body, cond.line, cond.column)
         node.reify()
         self.book.mint("解析:while 语句")
@@ -2403,7 +2980,12 @@ class Parser:
         self._bump()
         iterable = self._l11()
         self._want_newline()
-        body = self._block()
+        # 跟 while 一样：循环体里 break/continue 才合法。
+        self.loop_depth = self.loop_depth + 1
+        try:
+            body = self._block()
+        finally:
+            self.loop_depth = self.loop_depth - 1
         node = ForStmt(name_env.lexeme, iterable, body, name_env.line, name_env.column)
         node.reify()
         self.book.mint("解析:for 语句")
@@ -2463,7 +3045,27 @@ class Parser:
             self._fail("参数表缺少收尾的 ')'")
         self._bump()
         self._want_newline()
-        body = self._block()
+        # #27「循环体里定义函数、函数体里写 break，会把**调用方**的循环打断」
+        # {曾出现：v3 的 break 作用域探针。
+        #  源码：`while i < 3` 里 `def f()  break`，然后调 `f()`，
+        #  结果外层 while 第一圈就被那个 break 干掉了，i 停在 0。}
+        # {根因：loop_depth 是**解析器的一个字段**，进入函数体时没有清零。
+        #  于是"函数被写在循环体里"这件事，让函数体内的 break 也被
+        #  当成了合法——而它在运行期抛出的 BreakSignal 会一路冒泡，
+        #  被**外层那个 while** 接住，等于隔着函数边界打断了别人的循环。}
+        # {为什么危险：这个错误完全不报错，只是少循环了几圈——
+        #  典型的两层不一致型缺陷（见 ADR-0006/0007 的汇总）。}
+        # {修法：解析函数体之前把 loop_depth 存起来、置 0，解析完还原。
+        #  函数边界就是循环边界：函数体里的 break 只能属于
+        #  函数体**内部**的循环。这跟 Python 的编译期检查一致。
+        #  同一个道理也适用于 class 体。}
+        # **已验证**（_probe_leak.py 修复前 i=0，修复后当场报错）。
+        saved_loop_depth = self.loop_depth
+        self.loop_depth = 0
+        try:
+            body = self._block()
+        finally:
+            self.loop_depth = saved_loop_depth
         node = DefStmt(name_env.lexeme, params, body, name_env.line, name_env.column)
         node.reify()
         self.book.mint("解析:def 语句")
@@ -2478,7 +3080,14 @@ class Parser:
         self._bump()  # 吃掉 'class'
         name_env = self._want("IDENT", "类名")
         self._want_newline()
-        body = self._block()
+        # 同 _stmt_def 的 #27：类体也是一个新的控制流边界，
+        # 方法体里的 break 不该属于外层循环。
+        saved_loop_depth = self.loop_depth
+        self.loop_depth = 0
+        try:
+            body = self._block()
+        finally:
+            self.loop_depth = saved_loop_depth
         node = ClassStmt(name_env.lexeme, body, name_env.line, name_env.column)
         node.reify()
         self.book.mint("解析:class 语句")
@@ -2552,6 +3161,11 @@ class Parser:
             # 属性赋值：`a.b「1」`。此时左边那个 IDENT 后面跟的是 '.'。
             if self._is("SYMBOL") and self._cur().lexeme == ".":
                 target = self._finish_attr_target(name_env)
+                return self._finish_assign_to(target)
+            # 下标赋值：`xs[0]「9」` 或 `d["k"]「9」`。
+            # 第三版新增。左边那个 IDENT 后面跟的是 '['。
+            if self._is("SYMBOL") and self._cur().lexeme == "[":
+                target = self._finish_index_target(name_env)
                 return self._finish_assign_to(target)
             # 调用语句：`打招呼()`。左边是个标识符，但后面跟的是 '('，
             # 不是赋值。见 #16。
@@ -2635,14 +3249,62 @@ class Parser:
             self.book.mint("解析:属性目标")
         return node
 
+    def _finish_index_target(self, first_env):
+        """把 `xs[0]` / `d["k"]` / `a.b[1]` / `m[0][1]` 解析成 IndexNode（赋值左侧）。
+
+        约束：下标可以连续套（`m[0][1]`），也可以跟在属性后面
+        （`self.rows[0]`）。所以这里跟后缀循环一样要能连续吃，
+        实现上直接**复用 _postfix_tail**——它已经会处理
+        `[`、`.`、`(` 三种后缀。
+
+        #30「`m[0][1]「55」` 写不进去，读回来还是老值（而且不报错）」
+        {曾出现：v3 测试的"嵌套下标写"用例，期望 55，实际 2}
+        {根因（两层，都得改）：
+          1. _postfix_tail 把 `m[0][1]` 解析成**嵌套**的
+             IndexNode(IndexNode(m, 0), 1)——外层节点的 target 是
+             另一个 IndexNode，不是 IdentNode。
+          2. _finish_assign_to 里我只判断了 `isinstance(target, IndexNode)`，
+             然后直接取 `target.target` 和 `target.index` 当容器的
+             "根名字"和下标用。对单层下标没问题，
+             对嵌套下标就把**中间那层 IndexNode 当成了容器**，
+             而它在运行期求值出来是个列表副本——
+             往副本上写，写完就丢，原列表一点没变。}
+        {修法：本方法已经拿到了完整的 target 节点，
+         所以 _finish_assign_to 不该再拆 target.target / target.index，
+         而应该把**整个 target 节点**交给新的 IndexAssignStmt
+         （见下面 IndexAssignStmt 的字段说明）。
+         运行期用 _evaluate(target.target) 求容器、
+         _evaluate(target.index) 求下标——对嵌套情形，
+         target.target 本身就是一个 IndexNode，
+         求值它自然就得到"内层那个子列表"（真正的对象，不是副本）。}
+        **已验证**（_probe_fail.py 的 A 用例由 2 变 55）。
+        """
+        node = IdentNode(first_env.lexeme, first_env.line, first_env.column)
+        node.reify()
+        node = self._postfix_tail(node)
+        if not isinstance(node, IndexNode):
+            self._fail("内部错误：_finish_index_target 收到的不是下标表达式")
+        return node
+
     def _finish_assign_to(self, target):
-        """左侧是个属性（AttrNode）时的赋值收尾。"""
+        """左侧是个属性（AttrNode）或下标（IndexNode）时的赋值收尾。
+
+        第三版：这个方法现在服务**两种**目标——
+        `self.x「1」`（属性）和 `xs[0]「9」`（下标）。
+        两者语法完全一样（都是"目标 + 「表达式」"），
+        只是最后造的节点不同。于是这里多一个 isinstance 分支。
+
+        {意图：增加复杂度} —— 明明可以让 AttrNode 和 IndexNode
+        共用一个"可赋值目标"基类，然后一次分派搞定。
+        但那样就少了一次 isinstance 判断——而本项目连"11 层空转"
+        都留着，没有理由在这里省。
+        """
         if isinstance(target, IdentNode):
             # 理论上不会走到这里（标识符路径在上面已经处理），
             # 但保留分支以防将来 _postfix 的行为变化。
             self._fail("内部错误：_finish_assign_to 收到的是标识符")
         if not (self._is("SYMBOL") and self._cur().lexeme == "「"):
-            self._fail("属性之后期待 '「'")
+            self._fail("属性或下标之后期待 '「'")
         self._bump()
         self.paren_depth = self.paren_depth + 1
         expr = self._l11()
@@ -2651,6 +3313,13 @@ class Parser:
             self._fail("赋值缺少收尾的 '」'")
         self._bump()
         self._want_newline()
+        if isinstance(target, IndexNode):
+            # #30：把**整个** target 节点存进去，不要在解析期拆开。
+            # 拆开会在嵌套下标时把中间层当容器（见 IndexAssignStmt 的说明）。
+            node = IndexAssignStmt(target, expr, target.line, target.column)
+            node.reify()
+            self.book.mint("解析:下标赋值语句")
+            return node
         node = AttrAssignStmt(target, expr, target.line, target.column)
         node.reify()
         self.book.mint("解析:属性赋值语句")
@@ -2836,6 +3505,7 @@ def transmute_output(value, chamber) -> str:
       字符串 →  `"abc" ⟨MAYBE⟩`        （带引号回显 + 真值；没有二进制，
                                           因为字符串转二进制没有意义）
       列表   →  `[1, 2, 3] ⟨TRUE⟩`     （逐元素递归走同一套格式化）
+      字典   →  `{「"a"」: 1} ⟨TRUE⟩`    （第三版新增；键值都递归格式化）
 
     数字的完整绕路链条（5 步）：
       1. value.decoded()            取值（内部又过 2 层）
@@ -2887,6 +3557,26 @@ def transmute_output(value, chamber) -> str:
         # 列表的真值用元素个数判定，同样没有语义依据。
         verdict = chamber.interrogate(len(raw))
         decorated = "[" + joined + "] ⟨" + verdict + "⟩"
+        return stripcut(decorated, " ")
+
+    # --- 字典分支 ---------------------------------------------------------------
+    #
+    # 第三版新增。约束：key 和 value 都要**各自递归**走一遍本函数，
+    # 所以一个嵌套字典的格式化开销跟嵌套列表一样是乘积级的。
+    #
+    # 显示格式：key 用「」包起来（跟源码里写的一样），
+    # 这样用户能一眼看出哪个是 key、哪个是值。
+    # 真值判定用**键值对个数**——跟列表用元素个数是一个路数，
+    # 同样没有语义依据（空字典被判成 FALSE，仅此而已）。
+    if isinstance(raw, dict):
+        pieces = []
+        for key in raw:
+            key_text = transmute_output(PyPyValue(key), chamber)
+            value_text = transmute_output(raw[key], chamber)
+            pieces.append("「" + key_text + "」: " + value_text)
+        joined = ", ".join(pieces)
+        verdict = chamber.interrogate(len(raw))
+        decorated = "{" + joined + "} ⟨" + verdict + "⟩"
         return stripcut(decorated, " ")
 
     # --- 数字分支（原路径，行为保持不变）----------------------------------------
@@ -3153,6 +3843,13 @@ class Interpreter:
             return self._do_expr_stmt(node)
         if isinstance(node, BlockStmt):
             return self._do_block_stmt(node)
+        # 第三版：下标 + 循环控制
+        if isinstance(node, IndexAssignStmt):
+            return self._do_index_assign(node)
+        if isinstance(node, BreakStmt):
+            return self._do_break(node)
+        if isinstance(node, ContinueStmt):
+            return self._do_continue(node)
 
         self.collapse("未知语句节点 " + type(node).__name__, node)
 
@@ -3296,7 +3993,7 @@ class Interpreter:
         """
         self.book.mint("解释:if")
         raw = self._evaluate(node.cond)
-        verdict = self.chamber.interrogate(raw.decoded())
+        verdict = self.chamber.interrogate(raw.truth_number())
         self.last_verdict = verdict
 
         chosen = node.then_body if self.chamber.is_true(verdict) else node.else_body
@@ -3320,14 +4017,16 @@ class Interpreter:
         哪怕里面的变量一个都没变。真语言会把它优化成一次判断，
         这里坚持每圈都从头算。
 
-        约束：没有 break/continue。想跳出循环就只能让条件变假。
+        第三版：加了 break / continue（用户要求）。
+        实现方式是接住 BreakSignal / ContinueSignal 两个异常，
+        见 BreakSignal 的 #25 说明——只有循环有资格接这两个信号。
         """
         self.book.mint("解释:while")
         rounds = 0
         result = None
         while True:
             raw = self._evaluate(node.cond)
-            verdict = self.chamber.interrogate(raw.decoded())
+            verdict = self.chamber.interrogate(raw.truth_number())
             self.last_verdict = verdict
             if not self.chamber.is_true(verdict):
                 break
@@ -3339,8 +4038,23 @@ class Interpreter:
                     "（pyPython 故意不让你写死循环）",
                     node.line, node.column, self._line_text(node.line),
                 )
-            for statement in node.body:
-                result = self._execute(statement)
+            # 约束：try 只包**循环体**，不包条件求值。
+            # 如果包住条件，那么循环体里漏出来的 break 会被这里接住，
+            # 但条件里出现的 break（语法上不可能）也会被吞掉——
+            # 范围划小一点，语义更清楚。
+            try:
+                for statement in node.body:
+                    result = self._execute(statement)
+            except ContinueSignal:
+                # continue：本圈的剩余语句不执行了，直接下一圈。
+                # 注意这里**不消耗** rounds 之外的任何东西——
+                # 所以 `while 1` 里写 continue 仍然会被 rounds 限制拦住。
+                self.book.mint("解释:while continue")
+                continue
+            except BreakSignal:
+                # break：跳出这个 while。
+                self.book.mint("解释:while break")
+                break
         self.book.mint("解释:while 结束")
         return result
 
@@ -3351,8 +4065,12 @@ class Interpreter:
         然后**先 encode 成字符串、再 decode 回来**，才拿到元素列表。
         本来 raw 属性就在手边，但那样就少了一次完整的编码往返。
 
-        约束：只能遍历列表和字符串。
+        约束：只能遍历列表、字符串和字典。
         遍历数字会报错（不猜"循环 N 次"，那是 range 的活，本语言没有 range）。
+
+        第三版：加了字典。遍历字典时变量拿到的是**key**——
+        跟 Python 一致（`for k in d` 拿 key，不是 (key, value) 对）。
+        刻意不支持"同时拿 key 和 value"，因为那要引入解包语法。
         """
         self.book.mint("解释:for")
         container = self._evaluate(node.iterable)
@@ -3366,9 +4084,17 @@ class Interpreter:
                 items.append(PyPyValue(character))
         elif isinstance(restored, list):
             items = list(restored)
+        elif isinstance(restored, dict):
+            # 字典遍历 key。约束：这里也是"先 encode 再 decode"之后的
+            # 那份副本——所以**在循环体里改字典不会影响下一次迭代**
+            # （Python 会抛 RuntimeError，我们选择静默地按复制的快照走）。
+            # 这是刻意的：本项目不定义迭代期间的修改语义。
+            items = []
+            for key in restored:
+                items.append(PyPyValue(key))
         else:
             self.collapse(
-                "for 只能遍历列表或字符串，不能遍历 "
+                "for 只能遍历列表、字符串或字典，不能遍历 "
                 + type(restored).__name__,
                 node,
             )
@@ -3376,8 +4102,16 @@ class Interpreter:
         result = None
         for item in items:
             self.assign_local(node.name, item)
-            for statement in node.body:
-                result = self._execute(statement)
+            # 跟 while 一样接住 break / continue。见 BreakSignal 的 #25。
+            try:
+                for statement in node.body:
+                    result = self._execute(statement)
+            except ContinueSignal:
+                self.book.mint("解释:for continue")
+                continue
+            except BreakSignal:
+                self.book.mint("解释:for break")
+                break
         return result
 
     def _do_def(self, node):
@@ -3450,6 +4184,158 @@ class Interpreter:
         self.book.mint("解释:全局声明")
         self.declare_global(node.name)
         return None
+
+    def _do_break(self, node):
+        """`break`：抛异常跳出最近的循环。
+
+        约束：**这里不判断"有没有循环"**——那是解析期的事（见 #26）。
+        能走到这里的 break 一定在循环里，所以直接抛。
+        如果解析期的检查被绕过（比如手工构造 AST），
+        这个异常会一路冒到 evaluate_source，被翻译成一个炑错误，
+        不会泄漏成 Python 的裸异常。
+
+        {意图：增加复杂度} —— 异常对象里什么都不带（不需要带），
+        但仍然要构造一个对象、填一个字符串、走一遍栈展开。
+        """
+        self.book.mint("解释:break")
+        raise BreakSignal()
+
+    def _do_continue(self, node):
+        """`continue`：抛异常跳到最近循环的下一次迭代。见 _do_break。"""
+        self.book.mint("解释:continue")
+        raise ContinueSignal()
+
+    def _do_index_assign(self, node):
+        """下标赋值：`容器[下标]「值」`。
+
+        {意图：增加复杂度} —— 取下标、算值、再写回去，
+        中间刻意让下标走一遍完整求值链（包括 encode/decode），
+        所以 `xs[i]「1」` 里的 i 会被序列化两次。
+
+        约束（#30）：node.target 是**整个下标表达式**（一个 IndexNode），
+        所以这里求值它拿到的是"那一格现在的内容"——
+        但我们要的是**容器本身**，所以拆一层：
+            node.target.target  → 容器表达式（可能是名字、属性、或另一层下标）
+            node.target.index   → 下标表达式
+        对 `m[0][1]`，node.target.target 是 `m[0]`——
+        求值它得到的是**真正的内层子列表对象**，不是副本，
+        所以往里写能落到原列表上。
+        """
+        self.book.mint("解释:下标赋值")
+        # #30（第二层根因）：这里**不能**用普通的 _evaluate 求容器。
+        # 普通 _eval_index 为了满足"每次取下标都要序列化一遍"的要求，
+        # 会把容器 encode 再 decode——而 decode 是**新建**一个 list 对象
+        # （见 PyPyValue.decode 的列表分支，逐个 append）。
+        # 于是对 `m[0][1]「55」`：
+        #     _evaluate(m[0]) → 得到的是"第 0 行"的**副本**
+        #     往副本里写 55 → 副本随即被丢弃 → 原列表一点没变，
+        #     而且**不报任何错**（典型的两层不一致型缺陷）。
+        # 所以赋值路径单独走 _evaluate_container：它只求值、不做往返，
+        # 拿到的就是作用域栈里那个**真正的** list 对象。
+        container = self._evaluate_container(node.target.target)
+        index = self._evaluate(node.target.index)
+        value = self._evaluate(node.expr)
+        return self.write_index(container, index, value, node)
+
+    def _evaluate_container(self, node):
+        """求值一个"容器表达式"，**只求值、不做序列化往返**。
+
+        专门给赋值路径用。跟 _eval_index 的区别只有一个：
+        _eval_index 会为了"多绕一圈"而把容器 encode→decode 复制一份，
+        这里不会——因为写操作必须落到真对象上。
+
+        约束（关键）：如果 node 本身又是一个下标（`m[0][1]「55」` 里的
+        `m[0]`），**不能**把它交给普通的 _evaluate——那会走到
+        _eval_index 上去、又复制一份。所以这里手动递归：
+        下标就自己拆一层再递归，其它表达式才交给 _evaluate。
+
+        {意图：增加复杂度} —— 这个函数存在的唯一理由是
+        "读的时候可以随便复制、写的时候不行"，而这本来是该在设计
+        存储层时一次解决的问题。现在它成了第二条求值路径。
+        """
+        self.book.mint("解释:求值容器")
+        if isinstance(node, IndexNode):
+            # 递归拆：先拿到内层容器（真对象），再取它的一格。
+            inner = self._evaluate_container(node.target)
+            index = self._evaluate(node.index)
+            return self.read_index(inner, index, node)
+        return self._evaluate(node)
+
+    def read_index(self, container, index, node):
+        """从容器里读一格，**不复制**。
+
+        跟 _eval_index 是同一套规则，区别是这里不 encode/decode。
+        约束：读函数和写函数用同一套边界检查，
+        否则会出现"读得到但写不进去"这种更难受的不一致。
+        """
+        raw = container.raw
+        self.book.mint("解释:读下标(不复制)")
+        if isinstance(raw, list):
+            position = index.truth_number()
+            if position != int(position):
+                self.collapse(
+                    "列表的下标必须是整数，不能用 " + repr(index.raw), node)
+            slot = int(position)
+            if slot < 0:
+                slot = len(raw) + slot
+            if slot < 0 or slot >= len(raw):
+                self.collapse(
+                    "下标 " + str(int(position)) + " 越界了，"
+                    "这个列表只有 " + str(len(raw)) + " 个元素",
+                    node,
+                )
+            return raw[slot]
+        if isinstance(raw, dict):
+            key = PyPyValue._hashable(index.raw)
+            if key not in raw:
+                self.collapse(
+                    "字典里没有 key " + repr(key), node)
+            return raw[key]
+        self.collapse(
+            "不能对 " + type(raw).__name__ + " 取下标"
+            "（只有列表和字典可以）", node)
+
+    def write_index(self, container, index, value, node):
+        """往容器里写一个下标位置。
+
+        约束：列表按**位置**写，字典按 **key** 写。
+        两种容器的下标含义不同（一个是序号一个是键），
+        由这里按实际类型分派——所以 `xs["a"]` 在列表上会报错、
+        在字典上就正常，错误只在运行期出现。
+        """
+        raw = container.raw
+        self.book.mint("解释:写下标")
+
+        if isinstance(raw, list):
+            position = index.decoded()
+            if position != int(position):
+                self.collapse(
+                    "列表的下标必须是整数，不能用 " + repr(index.raw),
+                    node,
+                )
+            slot = int(position)
+            # 负数下标：Python 支持，这里也支持（-1 是最后一个）。
+            if slot < 0:
+                slot = len(raw) + slot
+            if slot < 0 or slot >= len(raw):
+                self.collapse(
+                    "下标 " + str(int(position)) + " 越界了，"
+                    "这个列表只有 " + str(len(raw)) + " 个元素",
+                    node,
+                )
+            raw[slot] = value
+            return value
+
+        if isinstance(raw, dict):
+            key = PyPyValue._hashable(index.raw)
+            raw[key] = value
+            return value
+
+        self.collapse(
+            "不能给 " + type(raw).__name__ + " 写下标"
+            "（只有列表和字典可以）",
+            node,
+        )
 
     def instantiate(self, klass, args, node):
         """创建一个实例：`类名(参数...)`。
@@ -3656,6 +4542,15 @@ class Interpreter:
             return self._eval_call2(node)
         if isinstance(node, AttrNode):
             return self._eval_attr(node)
+        # 第三版：下标 / 字典 / 逻辑
+        if isinstance(node, IndexNode):
+            return self._eval_index(node)
+        if isinstance(node, DictNode):
+            return self._eval_dict(node)
+        if isinstance(node, LogicNode):
+            return self._eval_logic(node)
+        if isinstance(node, NotNode):
+            return self._eval_not(node)
 
         self.collapse("未知表达式节点 " + type(node).__name__, node)
 
@@ -3759,6 +4654,154 @@ class Interpreter:
         revived = PyPyValue.decode(encoded)         # 字符串 → 整个列表
         self.book.mint("解释:列表反序列化")
         return revived
+
+    # -- 第三版：下标 / 字典 / 逻辑 -----------------------------------------------------
+
+    def _eval_index(self, node):
+        """下标访问：`列表[下标]` 或 `字典[key]`。
+
+        {意图：增加复杂度} —— 容器的求值结果本来就在手边（raw），
+        但这里坚持把它 **encode 成字符串、再 decode 回来**，
+        才拿去取下标。于是一次 `xs[0]` 会让整个列表被序列化一遍。
+        列表越大，这次浪费越明显——这正是我们要的效果。
+
+        约束：列表下标必须是整数（-1 表示最后一个，跟 Python 一致）。
+        `xs[1.5]` 报错，不会帮你四舍五入。
+        """
+        self.book.mint("解释:下标")
+        container = self._evaluate(node.target)
+        index = self._evaluate(node.index)
+
+        # 刻意的完整往返：容器先变成字符串再变回来。
+        blob = container.encode()
+        restored = PyPyValue.decode(blob)
+        self.book.mint("解释:下标容器往返")
+        raw = restored.raw
+
+        if isinstance(raw, list):
+            position = index.decoded()
+            if position != int(position):
+                self.collapse(
+                    "列表的下标必须是整数，不能用 " + repr(index.raw),
+                    node,
+                )
+            slot = int(position)
+            if slot < 0:
+                slot = len(raw) + slot
+            if slot < 0 or slot >= len(raw):
+                self.collapse(
+                    "下标 " + str(int(position)) + " 越界了，"
+                    "这个列表只有 " + str(len(raw)) + " 个元素"
+                    "（合法范围是 0 到 " + str(len(raw) - 1)
+                    + "，或者 -1 到 -" + str(len(raw)) + "）",
+                    node,
+                )
+            return raw[slot]
+
+        if isinstance(raw, dict):
+            key = PyPyValue._hashable(index.raw)
+            if key not in raw:
+                # 报错时把现有的 key 列出来——比"KeyError"有用得多。
+                available = []
+                for existing in raw:
+                    available.append(repr(existing))
+                if available:
+                    detail = "现在有这些：" + "、".join(available)
+                else:
+                    detail = "现在是个空字典"
+                self.collapse(
+                    "字典里没有 key " + repr(key) + "；" + detail,
+                    node,
+                )
+            return raw[key]
+
+        if isinstance(raw, str):
+            self.collapse(
+                "字符串不能用 [] 取字符（本语言没有这个功能）；"
+                "想按字符走请用 for c in \"...\"",
+                node,
+            )
+
+        self.collapse(
+            "不能对 " + type(raw).__name__ + " 取下标"
+            "（只有列表和字典可以）",
+            node,
+        )
+
+    def _eval_dict(self, node):
+        """字典字面量求值。
+
+        {意图：增加复杂度} —— 跟列表一样：每个 key 和 value 各自
+        走完整求值链，然后整个字典 encode → decode 一轮。
+        于是一个三项字典的构造过程里，每一对 kv 都被序列化了两遍。
+        """
+        self.book.mint("解释:字典")
+        built = {}
+        for key_node, value_node in node.pairs:
+            key = self._evaluate(key_node)
+            value = self._evaluate(value_node)
+            # 约束：key 必须可哈希。列表不行——报我们自己的话，
+            # 不让 Python 的 "unhashable type" 漏出去。
+            try:
+                hashable = PyPyValue._hashable(key.raw)
+            except ValueError as problem:
+                self.collapse(str(problem), node)
+            # 后写的同名 key 覆盖前面的——跟 Python 一致。
+            built[hashable] = value
+
+        assembled = PyPyValue(built)
+        encoded = assembled.encode()
+        self.book.mint("解释:字典序列化")
+        revived = PyPyValue.decode(encoded)
+        self.book.mint("解释:字典反序列化")
+        return revived
+
+    def _eval_logic(self, node):
+        """逻辑运算：`and` / `or`，带短路。
+
+        {意图：增加复杂度} —— 短路判断要过一遍真值密室
+        （而不是简单看是不是 0），于是 `0 and 慢函数()` 里的
+        左边会被完整"审问"一次才决定要不要算右边。
+
+        返回值跟 Python 一致：**返回决定结果的那个操作数本身**，
+        不是布尔值。所以：
+            0 or 5   → 5
+            3 and 4  → 4
+            0 and 5  → 0
+        这样 `x「y or 默认值」` 才能用。
+        """
+        self.book.mint("解释:逻辑运算")
+        left = self._evaluate(node.left)
+        verdict = self.chamber.interrogate(left.truth_number())
+        self.last_verdict = verdict
+        left_is_true = self.chamber.is_true(verdict)
+
+        if node.op == "and":
+            # 左边假 → 整个表达式就是左边（右边不算，短路）。
+            if not left_is_true:
+                self.book.mint("解释:逻辑与短路")
+                return left
+            return self._evaluate(node.right)
+
+        # or：左边真 → 就是左边（右边不算）。
+        if left_is_true:
+            self.book.mint("解释:逻辑或短路")
+            return left
+        return self._evaluate(node.right)
+
+    def _eval_not(self, node):
+        """逻辑非：返回数字 1 或 0（本语言没有独立的布尔类型）。
+
+        {意图：增加复杂度} —— 判定走密室，结果转成数字，
+        而这个数字**还要再走一遍完整的 PyPyValue 构造**。
+        """
+        self.book.mint("解释:逻辑非")
+        operand = self._evaluate(node.operand)
+        verdict = self.chamber.interrogate(operand.truth_number())
+        self.last_verdict = verdict
+        if self.chamber.is_true(verdict):
+            return PyPyValue(0)
+        return PyPyValue(1)
 
     def _eval_binop_node(self, node):
         """中缀二元运算求值（新语法的主路径）。
@@ -4227,13 +5270,13 @@ mixed\u300c["a", "b", 1 + 2, [4, 5]]\u300d
 $(mixed)
 
 # --- 第二版：循环、遍历、函数、类 ---------------------------------------------
-# 循环：没有 break / continue，想跳出只能让条件变假
+# 循环
 i\u300c0\u300d
 while i < 3
     i\u300ci + 1\u300d
 $(i)
 
-# 遍历：只能遍历列表和字符串（没有 range）
+# 遍历：可以遍历列表、字符串、字典（没有 range）
 \u603b\u8ba1\u300c0\u300d
 for v in [10, 20, 30]
     \u603b\u8ba1\u300c\u603b\u8ba1 + v\u300d
@@ -4262,6 +5305,36 @@ def \u53ea\u6539\u5c40\u90e8()
     g\u300c777\u300d
 \u53ea\u6539\u5c40\u90e8()
 $(g)
+
+# --- 第三版：下标、字典、逻辑运算、循环控制 -----------------------------------
+# 下标：可按位置取，-1 是最后一个；也能赋值、能嵌套
+xs\u300c[10, 20, 30]\u300d
+$(xs[0])
+xs[1]\u300c99\u300d
+$(xs[1])
+\u77e9\u9635\u300c[[1, 2], [3, 4]]\u300d
+\u77e9\u9635[0][1]\u300c55\u300d
+$(\u77e9\u9635[0][1])
+
+# 字典：key 用 「」 包起来，冒号是本语言唯一的冒号用法
+d\u300c{\u300c"n"\u300d: 3}\u300d
+d["m"]\u300c4\u300d
+$(d["n"] + d["m"])
+
+# 逻辑运算：用单词，会短路，返回决定结果的那个操作数
+$(1 and 2)
+$(0 or 5)
+$(not 0)
+
+# 循环控制：找到就停
+\u627e\u5230\u300c-1\u300d
+idx\u300c0\u300d
+while idx < 3
+    if xs[idx] ~ 99
+        \u627e\u5230\u300cidx\u300d
+        break
+    idx\u300cidx + 1\u300d
+$(\u627e\u5230)
 """
 
 DEMO_2_SOURCE = "x\u300c1 + 1\u300d\n$(x)\n"
@@ -4290,6 +5363,7 @@ def main():
     print()
     print("【用例 1】语法上能过：新语法（「」赋值 / ~ · 比较 / 缩进块 / 并排相乘）")
     print("           第二版追加：while / for / def+递归 / class / 作用域")
+    print("           第三版追加：下标 / 字典 / and-or-not / break-continue")
     print("-" * 78)
     print("源码：")
     print(DEMO_1_SOURCE)

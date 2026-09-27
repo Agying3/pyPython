@@ -35,12 +35,20 @@ DEBUG = False
 # class / self / 全局，这里必须同步——否则新关键字在编辑器里
 # 不会高亮，用户看不出自己写对没有。**这是第 6 处独立维护的拷贝**，
 # 见 ADR-0004 与 ADR-0007 里"两份数据源"的说明。
+#
+# 第三版再新增 break / continue / and / or / not。
+# 约束：and/or/not **能高亮但不是语句关键字**——本表只管高亮，
+# 所以照样列进来；判断"能不能开一条语句"的地方（pyparse 的
+# PYPYTHON_BLOCK_OPENERS、pypython.py 的 STATEMENT_KEYWORDS）
+# 千万不要跟着加这三个。
 PYPYTHON_KEYWORDS = [
     "if", "else",
     "while", "for", "in",
     "def", "return",
     "class", "self",
     "全局",
+    "break", "continue",
+    "and", "or", "not",
 ]
 
 # pyPython 没有内置函数，也没有类。这个列表**刻意留空**——

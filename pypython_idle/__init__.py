@@ -45,14 +45,23 @@ testing = False  # Set True by test.test_idle.
 # colorizer / autocomplete / hyperparser / calltip 各自还有一份副本
 #（改造时逐文件改的）。收敛它们需要再动一轮，暂记于此。
 #
-# 第二版（循环/遍历/类/def）新增 8 个。注意 5 份副本**全部**要同步：
+# 第二版（循环/遍历/类/def）新增 8 个。注意副本**全部**要同步：
 #   pypython.py KEYWORDS / colorizer.py / autocomplete.py /
 #   hyperparser.py / pyparse.py PYPYTHON_BLOCK_OPENERS / calltip.py
 #   / pypython_ide.py —— 见 ADR-0007。
+#
+# 第三版（下标/字典/逻辑/循环控制）再新增 5 个：
+#   break / continue  —— 语句关键字（**不是**块开启者）
+#   and / or / not    —— 表达式运算符。它们**不是**语句关键字
+#                        （不能靠它们开一条语句），但需要高亮和补全，
+#                        所以照样进这张表。谁要用"能不能开一条语句"
+#                        的判断，请用 STATEMENT_KEYWORDS，不要用这张表。
 PYPYTHON_KEYWORDS = frozenset({
     "if", "else",
     "while", "for", "in",
     "def", "return",
     "class", "self",
     "全局",
+    "break", "continue",
+    "and", "or", "not",
 })

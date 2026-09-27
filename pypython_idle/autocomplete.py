@@ -25,18 +25,24 @@ import sys
 # PYPYTHON_KEYWORDS 保持一致。多处独立维护是刻意的，见 ADR-0004。
 #
 # 第二版新增 while/for/in/def/return/class/self/全局。
+# 第三版新增 break/continue/and/or/not，以及新符号 { } :。
 completion_kwds = [
     "if", "else",
     "while", "for", "in",
     "def", "return",
     "class", "self",
     "全局",
+    "break", "continue",
+    "and", "or", "not",
 ]
 
 # --- pyPython 的语法符号 ---------------------------------------------------
 # 这些不是"名字"，但用户打字时确实需要它们，所以一并作为候选。
 # 原版没有这一项（Python 的语法符号不需要补全）。
-completion_symbols = ["$(", "\u300c", "\u300d", "[", "]", "~", "\u00b7", ".", ","]
+#
+# 第三版新增 "{", "}", ":" —— 字典字面量要用。
+completion_symbols = ["$(", "\u300c", "\u300d", "[", "]", "~", "\u00b7", ".", ",",
+                      "{", "}", ":"]
 completion_kwds.extend(completion_symbols)
 completion_kwds = sorted(set(completion_kwds))
 

@@ -87,6 +87,11 @@ _itemre = re.compile(r"""
 # 里的关键字表保持一致（多处独立维护是刻意的，见 ADR-0004 与 0007）。
 #
 # 注意 `全局` **不在**这个集合里：它不开启缩进块，只是一条普通语句。
+#
+# 第三版的 break / continue / and / or / not **也不在**这里——
+# 它们都是普通语句或运算符，开了块会让自动缩进给出错误的缩进。
+# 也就是说：第三版**没有**给这个集合加任何东西。
+# （加错了的现象是"写完 break 按回车自动多缩进一级"，很难查。）
 PYPYTHON_BLOCK_OPENERS = frozenset({
     "if", "else",
     "while", "for",
@@ -110,10 +115,17 @@ PYPYTHON_BLOCK_OPENERS = frozenset({
 # break / continue 仍然没有（用户没要，加了会让关键字表继续膨胀），
 # raise / pass 也没有。
 #
+# 第三版：**break / continue 也出现了**（用户要求"都加"）。
+# 于是上面那句"仍然没有"已经过时，这里按当时的预判把它们加了回来。
+# 影响：`break` / `continue` 之后按回车，缩进会正确地回到块的开头
+#（而不是继续给一个多余的缩进量）。
+#
 # 约束：`return` 有值和无值（光秃秃的 return）都算块结束，
 # 所以这里只匹配关键字本身，不管后面跟什么。
+# break / continue 必须是**整词**匹配，否则 `continues` 这种变量名
+# 会被误判成块结束语句。
 _closere = re.compile(r"""
-    \breturn\b
+    \b(return|break|continue)\b
 """, re.VERBOSE).match
 
 # Chew up non-special chars as quickly as possible.  If match is

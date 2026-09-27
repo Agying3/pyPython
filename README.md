@@ -58,10 +58,10 @@ $(中文)
 ### 第二版新增:循环、遍历、函数、类
 
 ```
-while i < 3        循环。没有 break / continue
+while i < 3        循环
     i「i + 1」
 
-for v in [1, 2]    遍历。只能遍历列表和字符串,没有 range()
+for v in [1, 2]    遍历。可以遍历列表、字符串、字典,没有 range()
     $(v)
 
 def 加(a, b)        函数。参数没有默认值
@@ -82,8 +82,29 @@ p「点(1, 2)」        直接调类名就是建对象
 $(p.长度())          输出 3
 ```
 
-**`return` 可以省略**(省略时返回 0)。**没有** `break` / `continue` / `try` /
-`lambda` / `import` / 继承。
+### 第三版新增:下标、字典、逻辑运算、循环控制
+
+```
+xs[0]  xs[-1]      下标。列表按位置,-1 是最后一个
+xs[1]「99」         下标也能赋值
+m[0][1]            下标可以嵌套
+
+{「"a"」: 1}        字典。key 用 「」 包起来,冒号是本语言唯一的冒号用法
+d「{}」             空字典
+d["a"]             按 key 取值(没有这个 key 会报错)
+d["b"]「2」         新增一项
+
+a and b           逻辑运算用单词,不用 && || !
+a or b             会短路,返回决定结果的那个操作数
+not a              (不是 1/0)
+
+break              跳出最内层循环。只能写在循环里,写在循环外解析期就报错
+continue           跳到下一轮。函数体里的 break 不会打断调用方的循环
+```
+
+**`return` 可以省略**(省略时返回 0)。
+**仍然没有**:切片、`while ... else`、异常、`lambda` / `import`、继承、`range()`。
+字符串也不能用 `[]` 取字符(想按字符走请用 `for c in "..."`)。
 
 **作用域按 Python 来**:函数里赋值默认建**局部**变量(所以递归正常),
 想改全局要显式声明:
@@ -96,8 +117,18 @@ def 改()
 $(g)               输出 999
 ```
 
-改语言之前**必读** `docs/decisions/0007` ——
+改语言之前**必读** `docs/decisions/0007` 与 `0008` ——
 关键字表在 8 个地方各有一份,漏改一处不会报错,只会静默失效。
+
+第三版起这几张表**语义分叉**了,不能无脑同步:
+
+- `and` / `or` / `not` 要**高亮和补全**,但**绝不能**进
+  `STATEMENT_KEYWORDS`(否则 `if not x` 会被当成新语句开头)
+- `break` / `continue` 要**高亮和补全**,但**绝不能**进
+  `PYPYTHON_BLOCK_OPENERS`(否则写完 `break` 按回车会多缩进一级)
+- `break` / `continue` **反而必须**进 `pyparse._closere`(它们是块结束语句)
+
+`tests/test_keyword_sync.py` 会逐项检查这些,包括反向断言("某某不该在哪张表里")。
 
 **注意**:`~` 和 `·` 在同一个键上。打反了**不会报错**(两个都是合法运算符),
 只会算错。这是已知设计,见 `docs/decisions/0002`。
@@ -150,8 +181,8 @@ pypython_idle/           源码改造版 IDE(60 个模块从 idlelib 抓来改�
   upstream-docs/           (无此目录)上游文档必须留在包根,见下
 pypython_ide.py          运行时代理版 IDE
 interpreter.py           早期的正经计算器解释器(已搁置)
-examples/hello.pypy      可运行示例(含第二版全部新语法)
-tests/                   回归测试,`python tests/run_all.py` 一把跑完
+examples/hello.pypy      可运行示例(含第一二版全部新语法 + 第三版)
+tests/                   回归测试,`python tests/run_all.py` 一把跑完(10 个脚本)
 docs/decisions/          架构决策记录
 ```
 

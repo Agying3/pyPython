@@ -104,8 +104,11 @@ expect_error("def 少括号", "def f\n    return 1\n", "期待 '('")
 expect_error("def 参数表没闭", "def f(a\n    return 1\n", "缺少收尾的 ')'")
 expect_error("class 没名字", "class\n    def f()\n        return 1\n")
 expect_error("return 少了表达式但后面跟怪东西", "def f()\n    return + 1\n")
-expect_error("break 不存在", "while 1\n    break\n")
-expect_error("continue 不存在", "while 1\n    continue\n")
+# 注意：下面两条在第三版之前是"应该报错"的（那时 break/continue 还不存在）。
+# 第三版把这两个关键字加上了，所以旧断言**已经过时**。
+# 改成检查新规则：循环里合法，循环外报错。
+expect_error("循环外 break", "break\n", "只能写在循环里面")
+expect_error("循环外 continue", "continue\n", "只能写在循环里面")
 
 print()
 print("=" * 74)

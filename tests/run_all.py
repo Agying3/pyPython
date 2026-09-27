@@ -23,11 +23,13 @@ SUITES = [
     ("test_adr0001_no_exec.py", "ADR-0001 硬约束：exec/eval 只在 main() 基线段"),
     ("test_v2_core.py", "第二版核心功能：while/for/def/class/self/全局/递归"),
     ("test_v2_errors.py", "错误路径：递归深度、循环上限、参数、类型、语法"),
+    ("test_v3_core.py", "第三版：下标读写 / 字典 / and-or-not / break-continue"),
     ("test_blank_lines.py", "空行回归（#23 的守卫）"),
     ("test_keyword_sync.py", "6 份关键字表同步 + 逐关键字端到端"),
     ("test_examples.py", "examples/hello.pypy 整份能跑且输出对"),
     ("test_auto_indent.py", "真实编辑器按回车自动缩进"),
     ("test_ide_v2.py", "IDE：高亮 / 补全 / 语法卡片 / F5 端到端"),
+    ("test_ide_v3.py", "IDE 第三版：新关键字高亮 / 补全 / 卡片 / 缩进边界"),
 ]
 
 

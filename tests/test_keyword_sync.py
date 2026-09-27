@@ -1,4 +1,9 @@
-"""核对：6 份关键字表是不是真的同步了。"""
+"""核对：全部关键字表副本是不是真的同步了。
+
+约束（重要）：本脚本**必须返回非 0 表示失败**。
+第二版时它只 print 不判断，于是"某份表少了一个关键字"这种情况
+在总入口里显示为 [OK]——一个永远绿的测试比没有测试更坏。
+"""
 
 import io
 import re
@@ -7,6 +12,16 @@ import sys
 sys.path.insert(0, r"H:\pyPython")
 
 import pypython
+
+FAILS = []
+
+
+def check(label, ok, detail=""):
+    print("  [%s] %s%s" % ("OK" if ok else "FAIL", label,
+                           ("  " + detail) if (detail and not ok) else ""))
+    if not ok:
+        FAILS.append(label)
+
 
 print("=" * 74)
 print("1. pypython.py 的权威表")
@@ -36,17 +51,17 @@ copies.append(("autocomplete.py（关键字部分）", ac_kw))
 
 for name, got in copies:
     same = got == authority
-    print("  %-38s %s" % (name, "一致" if same else "**不一致**"))
-    if not same:
-        print("      缺: %s" % sorted(authority - got))
-        print("      多: %s" % sorted(got - authority))
+    check(name + " 与权威表一致", same,
+          "缺 %s / 多 %s" % (sorted(authority - got), sorted(got - authority)))
 
 print()
 print("=" * 74)
 print("3. autocomplete 的补全列表是否覆盖全部关键字")
 print("=" * 74)
 missing = authority - ac
-print("   缺:", sorted(missing) if missing else "无")
+check("补全覆盖全部关键字", not missing, "缺: %s" % sorted(missing))
+for symbol in ["{", "}", ":"]:
+    check("补全含新符号 %r" % symbol, symbol in ac)
 
 print()
 print("=" * 74)
@@ -55,30 +70,52 @@ print("=" * 74)
 BLOG = pyparse.PYPYTHON_BLOCK_OPENERS
 print("   值:", sorted(BLOG))
 expected_block = {"if", "else", "while", "for", "def", "class"}
-print("   是否等于预期:", BLOG == expected_block)
-print("   全局 不该在里面:", "全局" not in BLOG)
-print("   return 不该在里面:", "return" not in BLOG)
+check("块开启集合正确", BLOG == expected_block, "实际: %s" % sorted(BLOG))
+for not_block in ["全局", "return", "break", "continue", "and", "or", "not", "in"]:
+    check("%r 不在块开启集合里" % not_block, not_block not in BLOG)
 
 print()
 print("=" * 74)
-print("5. calltip 的语法卡片")
+print("5. _closere 认得块结束语句")
+print("=" * 74)
+for word in ["return", "break", "continue"]:
+    check("_closere 匹配 %r" % word, pyparse._closere(word) is not None)
+check("_closere 不匹配 'continues'（整词）",
+      pyparse._closere("continues") is None)
+
+print()
+print("=" * 74)
+print("6. pypython.py 的语句关键字表（与高亮表区分开）")
+print("=" * 74)
+stmt = set(pypython.STATEMENT_KEYWORDS)
+check("break 是语句关键字", "KW_BREAK" in stmt)
+check("continue 是语句关键字", "KW_CONTINUE" in stmt)
+# 这三个是表达式运算符，绝不能进语句关键字——
+# 特别是 not，进了的话 `if not x` 会被当成新语句开头。
+for kind in ["KW_AND", "KW_OR", "KW_NOT"]:
+    check("%s 不是语句关键字" % kind, kind not in stmt)
+
+print()
+print("=" * 74)
+print("7. calltip 的语法卡片")
 print("=" * 74)
 cards = set(calltip.SYNTAX_CARDS)
 print("   现有:", sorted(cards))
-for need in ["while", "for", "def", "class", "global"]:
-    print("   有 %-8s: %s" % (need, need in cards))
+for need in ["while", "for", "def", "class", "global",
+             "index", "dict", "logic", "loopcontrol"]:
+    check("有 %r 卡片" % need, need in cards)
 
 print()
 print("=" * 74)
-print("6. pypython_ide 的补全骨架")
+print("8. pypython_ide 的补全骨架")
 print("=" * 74)
 sk = set(pypython_ide.COMPLETION_SKELETONS)
 missing_sk = authority - sk
-print("   缺:", sorted(missing_sk) if missing_sk else "无")
+check("骨架覆盖全部关键字", not missing_sk, "缺: %s" % sorted(missing_sk))
 
 print()
 print("=" * 74)
-print("7. 每个关键字都能真的用（端到端）")
+print("9. 每个关键字都能真的用（端到端）")
 print("=" * 74)
 CASES = {
     "if": "if 1 ~ 1\n    $(1)\n",
@@ -91,14 +128,30 @@ CASES = {
     "class": "class C\n    def f()\n        return 1\n",
     "self": "class C\n    def __init__()\n        self.v\u300c1\u300d\nc\u300cC()\u300d\n$(c.v)\n",
     "全局": "g\u300c1\u300d\ndef f()\n    \u5168\u5c40 g\u300c2\u300d\nf()\n$(g)\n",
+    "break": "while 1\n    break\n",
+    "continue": "for v in [1]\n    continue\n",
+    "and": "$(1 and 2)\n",
+    "or": "$(0 or 2)\n",
+    "not": "$(not 0)\n",
 }
 for kw in sorted(authority):
     src = CASES.get(kw)
     if src is None:
-        print("  %-8s **没有测试用例**" % kw)
+        check("%r 有测试用例" % kw, False, "**没有测试用例**")
         continue
     try:
         pypython.evaluate_source(src)
-        print("  %-8s 能跑" % kw)
+        check("%r 能跑" % kw, True)
     except Exception as e:
-        print("  %-8s **%s: %s**" % (kw, type(e).__name__, str(e)[:50]))
+        check("%r 能跑" % kw, False, "%s: %s" % (type(e).__name__, str(e)[:50]))
+
+print()
+print("=" * 74)
+if FAILS:
+    print("失败 %d 项：" % len(FAILS))
+    for name in FAILS:
+        print("   -", name)
+else:
+    print("全部通过")
+print("=" * 74)
+sys.exit(1 if FAILS else 0)
