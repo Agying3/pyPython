@@ -101,19 +101,67 @@
   `KEYWORDS` 独立维护。语言改了而 IDE 没跟上时，高亮会与实际行为不一致。
   这是刻意的"两份真相"，但需要人工保持同步。
 
+---
+
+## 源码改造版遇到的同类问题（编号 #I20 起）
+
+ADR-0005 的源码改造版（`pypython_idle/`）踩到的坑，编号沿用 `#I` 体系往下排。
+前四条是**同一类错误在不同地方的复现**，第五条是验证方法本身的缺陷。
+
+- **`#I20` 打开文件后高亮完全失效（严重，用户实测发现）**
+  `editor.py` 的 `_addcolorizer()` 是 `if self.ispythonsource(filename):`
+  **有条件地**创建高亮器；而 `ispythonsource()` 拿后缀比 `py_extensions`
+  （`.py`/`.pyw`），`.pypy` 不在表里 → `self.color` 永远是 `None`。
+  不报错，只是高亮没有 + `recolorize()` 抛 `AttributeError`。
+  **新建窗口走不到这条路**（文件名为 `None` 时首个分支直接返回 `True`），
+  所以只测新建发现不了。修法：覆盖 `ispythonsource` 无条件 `True`
+  ——IDLE 自己对 Shell 窗口就是这么干的。
+
+- **`#I21` `showtip()` 参数不足，每次按键喷 traceback（用户实测发现）**
+  `calltip_w.py` 的签名是 `showtip(self, text, parenleft, parenright)`，
+  改造 `calltip.py` 时只传了两个。后两个参数**不是装饰**：
+  `checkhide_event()` 靠它们判断光标是否还在范围内。
+  修法：范围定成整个当前行。
+
+- **`#I22` 输出面板无限追加，看起来像"没输出"（用户实测发现）**
+  面板从不清屏，每轮运行往后堆。用户看到的第一屏往往是**上一次**的结果。
+  修法：每轮清屏 + 标注运行次数。
+
+- **`#I23` 启动时往新窗口塞示例代码（用户实测发现）**
+  新建文件就该是空的。示例与说明属于 README，不属于用户的编辑缓冲区。
+
+- **`#I24` `idle.pyw` / `idle.bat` 会把原生 IDLE 拉起来**
+  这两个文件指向系统 `idlelib` 与 `pyshell.main()`，却放在本项目包目录里，
+  名字看起来像本项目的入口。已删除（确认无引用）。
+
+- **`#I25` 差点把 Help 菜单弄坏（第 7 次"看起来没用、其实在用"）**
+  准备把上游遗留文档（`help.html` / `CREDITS.txt` / `README.txt` 等 223 KB）
+  挪进子目录，**先查引用才发现 `help.py` 与 `help_about.py` 真的会读它们**。
+  已挪回原位。
+
+- **`#I26` 验证只覆盖了"新建"，漏掉"打开文件"**
+  最贵的一次：据 34/34 的通过率宣布"做完了"，而用户最常用的路径整个是坏的。
+  **教训：验收必须覆盖所有入口路径，不能只测自己顺手的那条。**
+  之后改为对 `new()` 和 `open()` **两条路径各跑一遍完整功能检查**。
+
 ## 受影响代码
 
 - `pypython_ide.py` / `launch()`：复刻 IDLE 装配流程（`#I13` / `#I15`）
 - `pypython_ide.py` / `_install_editor_factory()`：替换窗口与组件工厂（`#I14`）
 - `pypython_ide.py` / `PyPythonColorDelegator`：改 `self.prog`（`#I11` / `#I12`）
 - `pypython_ide.py` / `PYPYTHON_HILITE_PATTERN`：分组名必须等于 tag 名（`#I9`）
-- `pypython_ide.py` / `_probe_highlight()`：验证真实 tag 区间（`#I10`）
+- `pypython_ide.py` / `_probe_highlight()`：验证真实 tag 区间（`#I10` / `#I26`）
 - `pypython_ide.py` / `PyPythonAutoComplete`：`fetch_completions` 不走 rpc（`#I5`）
 - `pypython_ide.py` / `PyPythonCalltip`：静态语法卡片，废弃 Python 文档（`#I2`）
 - `pypython_ide.py` / `PyPythonEditorWindow.saved_change_hook()`：改标题（`#I16`）
 - `pypython_ide.py` / `PyPythonScriptBinding`：F5 运行 + 输出面板
 - `pypython.py` / `evaluate_source()`：IDE 唯一的调用入口
+- `pypython_idle/pypython_editor.py` / `ispythonsource()`（`#I20`）
+- `pypython_idle/calltip.py` / `open_calltip()`（`#I21`）
+- `pypython_idle/runscript.py` / `show_output()`（`#I22`）
+- `pypython_idle/startup.py` / `main()`（`#I23`）
 
 ## 变更记录
 
 - 2026-02-14 建立。取代最初的"手搓启动 + 直接改 idlelib 文件"方案。
+- 2026-02-14 补充"源码改造版遇到的同类问题"一节（`#I20`–`#I26`）。
