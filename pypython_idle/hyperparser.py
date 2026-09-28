@@ -20,6 +20,7 @@ from . import pyparse
 #
 # 第二版新增 while/for/in/def/return/class/self/全局。
 # 第三版新增 break/continue/and/or/not。
+# 第四版新增 未知（三值逻辑第三态）。
 #
 # 约束：本表在这里只用于**词法层面的"这是个关键字"判定**
 # （比如"光标是不是停在一个关键字上"），所以 and/or/not 要算进来。
@@ -31,6 +32,7 @@ PYPYTHON_KEYWORDS = frozenset({
     "全局",
     "break", "continue",
     "and", "or", "not",
+    "未知",
 })
 
 # all ASCII chars that may be in an identifier

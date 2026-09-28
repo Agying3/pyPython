@@ -26,6 +26,8 @@ import sys
 #
 # 第二版新增 while/for/in/def/return/class/self/全局。
 # 第三版新增 break/continue/and/or/not，以及新符号 { } :。
+# 第四版新增 未知（三值逻辑第三态）——补全里必须有它，
+# 否则用户根本不知道这门语言有第三态可用。
 completion_kwds = [
     "if", "else",
     "while", "for", "in",
@@ -34,6 +36,7 @@ completion_kwds = [
     "全局",
     "break", "continue",
     "and", "or", "not",
+    "未知",
 ]
 
 # --- pyPython 的语法符号 ---------------------------------------------------

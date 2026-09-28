@@ -56,6 +56,17 @@ testing = False  # Set True by test.test_idle.
 #                        （不能靠它们开一条语句），但需要高亮和补全，
 #                        所以照样进这张表。谁要用"能不能开一条语句"
 #                        的判断，请用 STATEMENT_KEYWORDS，不要用这张表。
+#
+# 第四版（三值逻辑）新增 1 个：
+#   未知  —— 第三态字面量。它跟 self 同类：是个**值**，不是语句、
+#            不是运算符，所以同样**不进** STATEMENT_KEYWORDS。
+#            约束：它必须是关键字而不是普通变量名，否则用户一句
+#            `未知「5」` 就能把"未观测"这个状态覆盖掉，
+#            而用户明确要求"这个状态必须被语言保留"。
+#
+#            另外注意：MAYBE 这个词在第四版被**让给了"未观测"**，
+#            原来叫 MAYBE 的数值档（0 < x < 1）改名叫 LIMBO 了。
+#            那是真值密室的内部档位，不是关键字，所以不在这张表里。
 PYPYTHON_KEYWORDS = frozenset({
     "if", "else",
     "while", "for", "in",
@@ -64,4 +75,5 @@ PYPYTHON_KEYWORDS = frozenset({
     "全局",
     "break", "continue",
     "and", "or", "not",
+    "未知",
 })

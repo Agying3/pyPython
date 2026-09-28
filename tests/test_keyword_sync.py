@@ -95,6 +95,19 @@ check("continue 是语句关键字", "KW_CONTINUE" in stmt)
 for kind in ["KW_AND", "KW_OR", "KW_NOT"]:
     check("%s 不是语句关键字" % kind, kind not in stmt)
 
+# 第四版：`未知` 是**值**（跟 self 同类），不是语句——
+# 它单独占一行是语法错误，所以绝不能进 STATEMENT_KEYWORDS。
+check("KW_UNKNOWN 不是语句关键字", "KW_UNKNOWN" not in stmt)
+check("未知 不在块开启集合里", "未知" not in pyparse.PYPYTHON_BLOCK_OPENERS)
+
+# 第四版的核心性质：MAYBE 这个名字归"未观测"了，
+# 原来那个数值档改叫 LIMBO。两条都要盯住，改回去就报错。
+check("真值格第三档已改名为 LIMBO",
+      pypython.TRUTH_LATTICE == ["FALSE", "HOPELESS", "LIMBO", "TRUE"],
+      "实际: %s" % pypython.TRUTH_LATTICE)
+check("真值格里不再有 MAYBE",
+      "MAYBE" not in pypython.TRUTH_LATTICE)
+
 print()
 print("=" * 74)
 print("7. calltip 的语法卡片")
@@ -102,7 +115,7 @@ print("=" * 74)
 cards = set(calltip.SYNTAX_CARDS)
 print("   现有:", sorted(cards))
 for need in ["while", "for", "def", "class", "global",
-             "index", "dict", "logic", "loopcontrol"]:
+             "index", "dict", "logic", "loopcontrol", "unknown"]:
     check("有 %r 卡片" % need, need in cards)
 
 print()
@@ -133,6 +146,8 @@ CASES = {
     "and": "$(1 and 2)\n",
     "or": "$(0 or 2)\n",
     "not": "$(not 0)\n",
+    # 第四版：三值逻辑第三态。它出现在赋值右边和表达式里都合法。
+    "未知": "x\u300c\u672a\u77e5\u300d\n$(x)\n",
 }
 for kw in sorted(authority):
     src = CASES.get(kw)

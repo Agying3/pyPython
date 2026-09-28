@@ -476,7 +476,16 @@ class Registry:
 #   Python int → PyPyValue 对象 → 编码字符串 → 存 list → 解码回对象 → 取 .magnitude
 
 # 真值格的四档。顺序很重要：索引越大越"真"。
-TRUTH_LATTICE = ["FALSE", "HOPELESS", "MAYBE", "TRUE"]
+#
+# 第四版改名（重要）：第二档原来叫 MAYBE，意思是"数字落在 0 和 1 之间"。
+# 但第四版要引入**三值逻辑**，MAYBE 这个名字必须还给"未观测的量子态"。
+# 于是这一档改叫 LIMBO（"悬而未决的中间地带"），语义完全没变——
+# 还是 0 < x < 1，只是不再占用 MAYBE 这个名字。
+#
+# 约束：改名**不影响任何逻辑**。verdict_index() 和 is_true() 都是按下标
+# 工作的，不看字面名字，所以这里只是换了个字符串。
+# 唯一可见的变化是输出：`$(0.5)` 现在印 `0.5 ⟨LIMBO⟩`。
+TRUTH_LATTICE = ["FALSE", "HOPELESS", "LIMBO", "TRUE"]
 
 # 真值 → 数字的映射表，用一个列表查，而不是 in 判断。
 TRUTH_TO_INT = [0, 1, 2, 3]  # 与 TRUTH_LATTICE 下标对应
@@ -695,6 +704,16 @@ class PyPyValue:
         **已验证**（_probe_dict.py 的两个用例由 ERR 变 OK）。
         """
         raw = self.raw
+        # 第四版：未观测态要**在这个方法里就拦住**。
+        # 不拦的话 float("MAYBE") 会抛 ValueError，用户看到的是宿主的
+        # 报错信息，而不是"这里状态未知"。
+        #
+        # 返回值的选择：给一个**既不是 0 也不是 ≥1** 的数，
+        # 于是密室会把它判成 LIMBO（第三档），而 is_true() 对 LIMBO 返回 False。
+        # 这样旧的控制流（还没改成三值的那部分）不会因为未知而炸，
+        # 只会安静地走"非真"那条路。真正的三值判断在 tri_from_value 里做。
+        if raw == MAYBE_UNKNOWN:
+            return 0.5
         if isinstance(raw, (PyPyFunction, PyPyClass, PyPyInstance)):
             # 这三样没有"多少"可言。给 0 就是一律判假——
             # 刻意不按"参数个数/方法数/属性数"来判，
@@ -1058,6 +1077,20 @@ KEYWORDS = {
     #（Python 是语法错，我们也在解析期拦，见 _stmt_break）。
     "break": "KW_BREAK",
     "continue": "KW_CONTINUE",
+    # --- 第四版：三值逻辑的第三态 ---------------------------------------------
+    #
+    # `未知` 是**值**，不是语句、不是运算符。跟 self 同类——
+    # 它出现在表达式里代表"这个位置的状态还没被观测"。
+    #
+    # 为什么用中文：本语言的符号层已经是全角的，「」$~· 都是，
+    # 而 `未知` 读起来就是它的意思，不用翻译。
+    # 为什么不做成内置变量名（比如 MAYBE）：那样 `未知「5」` 一句就能把它覆盖掉。
+    # 用户要求"这个状态必须被语言保留"，能被覆盖的名字保留不住任何东西——
+    # 所以它必须是关键字，用户拿它没辙。
+    #
+    # 约束：**绝不进 STATEMENT_KEYWORDS**。它不能开一条语句，
+    # 加进去会让 `if 未知` 里的 `未知` 被当成新语句的开头。
+    "未知": "KW_UNKNOWN",
 }
 
 # 单字符符号集合。
@@ -1611,6 +1644,21 @@ class IdentNode(Node):
     def __init__(self, name, line, column):
         Node.__init__(self, line, column)
         self.name = name
+
+
+class UnknownNode(Node):
+    """三值逻辑的第三态字面量：`未知`。
+
+    {意图：降低可读性} —— 它明明可以复用 IdentNode（求值时都只是查个名字），
+    但那样解释器就分不清"用户在查一个叫未知的变量"和"用户在写未知本身"。
+    所以专门开一个节点，于是求值链上又多一条 isinstance 分支。
+
+    约束：这个节点求值出来的值，永远不能是"确定为真"或"确定为假"。
+    它是**信息缺失**的表示，不是第三种布尔值。
+    """
+
+    def __init__(self, line, column):
+        Node.__init__(self, line, column)
 
 
 class StringNode(Node):
@@ -2270,7 +2318,8 @@ class Parser:
         "后面还跟不跟操作数"判断上做错决定。
         """
         env = self._cur()
-        if env.kind in ("NUMBER", "IDENT", "KW_SELF", "STRING", "KW_NOT"):
+        if env.kind in ("NUMBER", "IDENT", "KW_SELF", "STRING", "KW_NOT",
+                        "KW_UNKNOWN"):
             return True
         if env.kind == "SYMBOL" and env.lexeme in ("(", "[", "{"):
             return True
@@ -2542,6 +2591,17 @@ class Parser:
             node = IdentNode(env.lexeme, env.line, env.column)
             node.reify()
             self.book.mint("解析:self 节点")
+            self.last_atom_was_paren = False
+            return node
+
+        if env.kind == "KW_UNKNOWN":
+            # 第四版：`未知` 字面量。它是**值**，跟数字、字符串同类。
+            self._bump()
+            node = UnknownNode(env.line, env.column)
+            node.reify()
+            self.book.mint("解析:未知态节点")
+            # 约束：**不开**并排相乘。`未知 3` 没有意义，
+            # 而且开了之后 `$(未知) $(x)` 一行两输出会被误判成乘法。
             self.last_atom_was_paren = False
             return node
 
@@ -3388,8 +3448,11 @@ class TruthinessChamber:
         规则（完全是我们编的，且互相重叠）：
           0        → FALSE
           负数     → HOPELESS
-          0 到 1   → MAYBE
+          0 到 1   → LIMBO
           其余     → TRUE
+
+        第四版：第三档由 MAYBE 改名为 LIMBO。原因见 TRUTH_LATTICE 的说明——
+        MAYBE 这个词被"未观测的量子态"拿走了，两套语义不能共用一个名字。
 
         {意图：增加复杂度} —— 用连续的 if 链而不是查表，
         并且每判定一次都要把结果字符串化再解析回来。
@@ -3442,6 +3505,293 @@ def truth_to_number(verdict: str) -> int:
             return TRUTH_TO_INT[position]
         position = position + 1
     return 0
+
+
+# =====================================================================================
+# 抽象层 7.5：三值逻辑门（Three-Valued Logic Gates）
+# =====================================================================================
+#
+# 这是 pyPython 第四版的核心，也是这门语言唯一的"正经功能"。
+#
+# 【它和上面那个真值密室是什么关系】
+# 密室（TruthinessChamber）回答的是"这个数字算真还是算假"——四档，但只有
+# 最高档算真，其余三档行为完全一样。那是**装饰**。
+#
+# 本层回答的是另一个问题："这个值是不是**还没被测**？"
+# 三值逻辑里第三态不是"介于真假之间"，而是**信息缺失**。
+#
+# 【第三态是什么，不是什么】
+#   TRUE   → 已观测，为真
+#   FALSE  → 已观测，为假
+#   MAYBE  → **尚未观测**。不是 None，不是错误，不是随机数。
+#
+# 约束（这是本设计的命门）：**绝不用 random 模拟未知**。
+# 底层是二进制机器，任何"随机"都是伪随机——用伪随机去装未知，
+# 等于把"我不知道"偷偷换成了"我掷了个骰子"，那是撒谎。
+# 未知就是未知，一路传下去，不替用户做判断。
+#
+# 【Kleene 三值逻辑真值表】
+#
+# AND（且）—— 假能压过未知，真压不过：
+#        右:T   右:F   右:M
+#   左:T   T      F      M
+#   左:F   F      F      F      ← 只要一边确定为假，整体就确定为假
+#   左:M   M      F      M      ← 一边未知、另一边为真，结果仍未知
+#
+# OR（或）—— 真能压过未知，假压不过：
+#        右:T   右:F   右:M
+#   左:T   T      T      T      ← 只要一边确定为真，整体就确定为真
+#   左:F   F      F      M
+#   左:M   T      M      M
+#
+# NOT（非）—— 未知取反仍是未知（取反不产生信息）：
+#   NOT T = F    NOT F = T    NOT M = M
+#
+# 【为什么表和短路求值能共存】
+# 短路是**求值策略**（右边还要不要算），真值表是**语义**（算出来是什么）。
+# 两者不冲突：`假 and 未知` 短路之后直接得假，跟查表结果一致；
+# `未知 and 假` 不短路（左边不是假），照样查表得假。
+# 也就是说——**无论求值顺序如何，结果都一样**。这正是三值逻辑该有的性质。
+
+# 三个状态的常量。用字符串而不是 enum，因为：
+#   1. 本语言所有值最终都要编码成字符串进 Registry，字符串天然对齐
+#   2. 输出时要直接印出来，省一次转换（也就少了一次"绕路"，
+#      但本项目在这里选择不绕——因为状态本身必须清晰可辨）
+MAYBE_TRUE = "TRUE"
+MAYBE_FALSE = "FALSE"
+MAYBE_UNKNOWN = "MAYBE"
+
+# 三值域的成员表。约束：**只有这三个**——
+# 密室那四档（含 HOPELESS / LIMBO）不进这里。
+# 理由是它们回答的是不同的问题，混在一起会让真值表失去意义。
+THREE_VALUED_DOMAIN = [MAYBE_FALSE, MAYBE_UNKNOWN, MAYBE_TRUE]
+
+
+def tri_from_value(pypy_value) -> str:
+    """把一个 PyPyValue 投影成三值域里的一个状态。
+
+    规则：
+      - 值本身就是 MAYBE（未观测）        → MAYBE
+      - 其余一律交给密室判定，TRUE 档    → TRUE，别的一律 → FALSE
+
+    约束：这里的"别的一律 FALSE"是刻意的——本层不关心 HOPELESS 和 LIMBO
+    的区别（那是密室的装饰）。三值逻辑只问"确真 / 确假 / 未知"。
+
+    {意图：增加复杂度} —— 明明可以直接看 raw 是不是那个字符串，
+    这里偏要再往密室绕一圈，让"任何值都过密室"这条规矩不被本层破坏。
+    """
+    raw = pypy_value.raw
+    # 未观测态直接透传：它不该被当成数字去判真假，
+    # 因为"还没回消息"和"回了消息说是假的"是两回事。
+    if raw == MAYBE_UNKNOWN:
+        return MAYBE_UNKNOWN
+    chamber = TruthinessChamber()
+    verdict = chamber.interrogate(pypy_value.truth_number())
+    if chamber.is_true(verdict):
+        return MAYBE_TRUE
+    return MAYBE_FALSE
+
+
+def tri_and(left: str, right: str) -> str:
+    """三值 AND。按 Kleene 表实现。
+
+    约束：**必须写成表**，不能靠 `if not left: return left` 这种短路推断——
+    那样 `假 and 未知` 和 `未知 and 假` 会走出不同结果，而它们必须相同。
+
+    {意图：增加复杂度} —— 表明明可以做成 dict 直接查，这里偏要
+    三层嵌套 if + 字符串比较，保证每个格子都被显式写过一遍。
+    """
+    if left == MAYBE_TRUE:
+        if right == MAYBE_TRUE:
+            return MAYBE_TRUE
+        if right == MAYBE_FALSE:
+            return MAYBE_FALSE
+        return MAYBE_UNKNOWN
+    if left == MAYBE_FALSE:
+        # 确定为假 → 无论右边是什么（哪怕是未知），整体确定为假。
+        # 这是三值逻辑最反直觉的一格，也是最有用的一格。
+        return MAYBE_FALSE
+    # left 是未知
+    if right == MAYBE_FALSE:
+        return MAYBE_FALSE
+    return MAYBE_UNKNOWN
+
+
+def tri_or(left: str, right: str) -> str:
+    """三值 OR。按 Kleene 表实现。见 tri_and 的约束说明。"""
+    if left == MAYBE_TRUE:
+        # 确定为真 → 无论右边是什么，整体确定为真。
+        return MAYBE_TRUE
+    if left == MAYBE_FALSE:
+        if right == MAYBE_TRUE:
+            return MAYBE_TRUE
+        if right == MAYBE_FALSE:
+            return MAYBE_FALSE
+        return MAYBE_UNKNOWN
+    # left 是未知
+    if right == MAYBE_TRUE:
+        return MAYBE_TRUE
+    return MAYBE_UNKNOWN
+
+
+def tri_not(operand: str) -> str:
+    """三值 NOT。未知取反仍是未知——取反不产生任何新信息。
+
+    这一格是整个设计里我最想保住的一格：如果 `not 未知` 返回了确定值，
+    那就等于语言替用户猜了一次，而"不可名也，不可执也"要求它不许猜。
+    """
+    if operand == MAYBE_TRUE:
+        return MAYBE_FALSE
+    if operand == MAYBE_FALSE:
+        return MAYBE_TRUE
+    return MAYBE_UNKNOWN
+
+
+# =====================================================================================
+# 抽象层 7.6：静默观测账本（Silent Observation Ledger）
+# =====================================================================================
+#
+# 当控制流碰到 MAYBE，本语言**不执行任何分支、不报错、不随机**。
+# 但它必须留下一份可查的记录——否则"未知"就真的消失了，
+# 用户只会看到一个静默不动的程序，分不清"未知"和"程序坏了"。
+#
+# 用户明确要求每次静默观测记清楚三件事：
+#   1. 哪个变量是未知
+#   2. 哪一行代码碰到了它
+#   3. 这个未知有没有传染到后面的运算
+#
+# 第 3 件最难，也最要紧：它要求"标记"能跟着值走。
+# 我们的做法是给被污染的值打一个记号（taint），谁碰过它谁就带记号，
+# 于是"传染"变成可追踪的事实，而不是一句感觉。
+
+
+class SilentObservation:
+    """一次静默观测的完整记录。
+
+    {意图：增加复杂度} —— 三件事各存一个字段就够了，但这里坚持
+    把整条记录也做成对象、也要进账本、也要能被字符串化。
+    一个本该是三元组的东西，被做成了有 6 个字段的类。
+    """
+
+    def __init__(self, unknown_name, line, column, propagated, propagated_into):
+        self.unknown_name = unknown_name      # 哪个变量未知（取不到名字时是 None）
+        self.line = line                      # 第几行碰到的
+        self.column = column
+        self.propagated = propagated          # 未知有没有传染出去
+        self.propagated_into = propagated_into  # 传染到哪些运算里（字符串列表）
+
+    def describe(self) -> str:
+        """把这次观测写成人能读的一行。"""
+        who = self.unknown_name if self.unknown_name else "(非变量，是表达式)"
+        if self.propagated:
+            where = "、".join(self.propagated_into)
+            spread = "已传染 → " + where
+        else:
+            spread = "未传染（未知在此终止，没有被后面的运算碰到）"
+        return ("变量 %s 在第 %d 行第 %d 列是未知；%s"
+                % (who, self.line, self.column, spread))
+
+
+class ObservationLedger:
+    """静默观测账本。
+
+    约束：**只记不判**。账本不改变任何控制流，只是记录。
+    这是"不知道就不替用户做判断"这条原则在实现上的落点——
+    账本可以说话，但不可以动手。
+    """
+
+    def __init__(self, book=None):
+        self.observations: list[SilentObservation] = []
+        self.book = book
+
+    def record(self, observation):
+        """记一次观测。也要往泬账本里记一笔（观测本身也是开销）。"""
+        self.observations.append(observation)
+        if self.book is not None:
+            self.book.mint("解释:静默观测")
+
+    def count(self):
+        """观测次数。手写循环累加，不用 len()。{意图：增加复杂度}"""
+        tally = 0
+        for _ in self.observations:
+            tally = tally + 1
+        return tally
+
+    def lines(self):
+        """产出要打印给用户看的那些行。
+
+        约束：格式是用户指定的，一个字都不能改：
+            炑：静默观测已触发（第X行），状态未知，未执行任何分支。
+        额外的那几行是我加的明细——用户要求"账本内容打出来亲眼确认"，
+        光一行总括看不出三件事，所以每次观测展开成多行。
+        """
+        out = []
+        for obs in self.observations:
+            out.append("炑：静默观测已触发（第%d行），状态未知，未执行任何分支。"
+                       % obs.line)
+            who = obs.unknown_name if obs.unknown_name else "(不是变量，是一个表达式)"
+            out.append("      未知来源：%s" % who)
+            if obs.propagated:
+                out.append("      传染情况：已传染 → %s"
+                           % "、".join(obs.propagated_into))
+            else:
+                out.append("      传染情况：未传染（未知到此为止）")
+        return out
+
+
+def find_unknown_names(node, interpreter, seen=None):
+    """在一个条件表达式里，找出**哪些变量的当前值是未知的**。
+
+    为什么需要它：用户要求静默观测记清楚"哪个变量是未知"。
+    但控制流手上只有**求值后的结果**（一个 MAYBE），
+    光看结果是不知道它从哪来的——`未知 and x` 和 `y and x`（y 是未知）
+    结果一模一样。所以必须回头**走一遍 AST**，逐个变量去问当前值。
+
+    约束：这是"记账"用的，不是"求值"用的。它不改变任何状态，
+    不触发任何副作用（不调用函数），只是看。
+
+    {意图：增加复杂度} —— 明明可以在求值时顺手记下"这个 MAYBE 来自谁"，
+    这里偏要事后重新爬一遍语法树，多一次遍历、多一次作用域查找。
+    """
+    if seen is None:
+        seen = []
+    if node is None:
+        return seen
+
+    if isinstance(node, IdentNode):
+        # 只查变量。查不到就跳过——因为"名字不存在"是另一类错误，
+        # 不该在静默观测的账里混进来。
+        try:
+            value = interpreter.lookup(node.name)
+        except Exception:
+            value = None
+        if value is None:
+            return seen
+        if value.raw == MAYBE_UNKNOWN:
+            if node.name not in seen:
+                seen.append(node.name)
+        return seen
+
+    # 递归走进子表达式。这里列举的是"条件里可能出现的节点"，
+    # 不是全部节点——漏掉某类会让账本少记一个变量，
+    # 所以宁可多写几条 isinstance。
+    for attr in ("left", "right", "operand", "target", "index", "expr", "iterable"):
+        child = getattr(node, attr, None)
+        if child is not None and isinstance(child, Node):
+            find_unknown_names(child, interpreter, seen)
+
+    elements = getattr(node, "elements", None)
+    if isinstance(elements, list):
+        for item in elements:
+            find_unknown_names(item, interpreter, seen)
+
+    pairs = getattr(node, "pairs", None)
+    if isinstance(pairs, list):
+        for key_node, value_node in pairs:
+            find_unknown_names(key_node, interpreter, seen)
+            find_unknown_names(value_node, interpreter, seen)
+
+    return seen
 
 
 # =====================================================================================
@@ -3519,6 +3869,19 @@ def transmute_output(value, chamber) -> str:
     stripcut 和密室审问。用户写 $([1,[2,[3]]]) 就能看到指数级的浪费。
     """
     raw = value.raw
+
+    # --- 未观测态分支（第四版新增，必须排在字符串分支**前面**）-------------------
+    #
+    # 约束：MAYBE 在底层是一个普通字符串 "MAYBE"，如果不拦，
+    # 它会掉进下面的字符串分支，被印成 `"MAYBE" ⟨TRUE⟩`
+    #（因为长度 5 ≥ 1 被判 TRUE）——那就等于把"未知"说成了"真"。
+    # 这是本设计里最容易出错也最不能出错的一格。
+    #
+    # 输出格式：不套引号（它不是字符串），直接印状态本身。
+    # 真值部分印 ⟨MAYBE⟩，不经过密室——密室只能判"真/假"，
+    # 而未知的意义正是"密室还没法判"。
+    if raw == MAYBE_UNKNOWN:
+        return stripcut(MAYBE_UNKNOWN + " ⟨" + MAYBE_UNKNOWN + "⟩", " ")
 
     # --- 函数 / 类 / 实例分支 ---------------------------------------------------
     #
@@ -3699,6 +4062,12 @@ class Interpreter:
         self.emitted = []       # 收集输出行，供 main() 展示
         self.depth = 0
         self.last_verdict = "FALSE"
+        # 第四版：静默观测账本。控制流碰到 MAYBE 时往这里记，
+        # 但它**只记不判**——账本可以说话，不可以动手。见 ObservationLedger。
+        self.observations = ObservationLedger(book)
+        # 当前正在求值的"未知来自哪个变量"。
+        # 由 _do_if / _do_while 在静默观测前设好，供 note_unknown_spread 用。
+        self.unknown_origin = ""
 
         # --- 第二版新增：作用域栈 ---------------------------------------------
         #
@@ -3986,17 +4355,77 @@ class Interpreter:
         return value
 
     def _do_if(self, node):
-        """条件语句。条件必须是真值格的最高档才走 then。
+        """条件语句。**三值感知**。
 
-        {意图：增加复杂度} —— 条件求值后要经过密室判定，
-        而判定结果又要转回数字参与后续运算（如果用户在 then 里又用了它）。
+        第四版规则（用户定）：
+          条件判定为 TRUE  → 走 then
+          条件判定为 FALSE → 走 else
+          条件判定为 MAYBE → **静默观测**：then 和 else 都不执行，
+                             不报错、不随机、不跳过，只往账本记一笔。
+
+        为什么不随机挑一边：底层是二进制机器，任何"随机"都是伪随机。
+        用伪随机去装未知，等于把"我不知道"偷偷换成"我掷了个骰子"——
+        那是撒谎。未知就是未知，语言不替用户做判断。
+
+        为什么要记账而不是纯静默：如果两边都不跑、又什么都不说，
+        用户只会看到一个不动的程序，分不清"遇到未知"和"程序坏了"。
+        账本让未知**可见**，但不让它**被处理**。
+
+        约束（关键）：判定用的是 tri_from_value，**不是** is_true()。
+        因为 is_true() 会把 MAYBE 和 HOPELESS/LIMBO 一起归成"假"，
+        那样未知就会被错误地当成"确定为假"走下去——
+        丢失的正是本语言要保住的那个状态。
         """
         self.book.mint("解释:if")
         raw = self._evaluate(node.cond)
-        verdict = self.chamber.interrogate(raw.truth_number())
-        self.last_verdict = verdict
+        state = tri_from_value(raw)
 
-        chosen = node.then_body if self.chamber.is_true(verdict) else node.else_body
+        # 记下"未知从哪个变量来"，供传染登记用。
+        names = find_unknown_names(node.cond, self)
+        if names:
+            self.unknown_origin = "变量 " + names[0]
+        else:
+            self.unknown_origin = ""
+
+        if state == MAYBE_UNKNOWN:
+            # --- 静默观测：两边都不走 ---
+            self.book.mint("解释:静默观测")
+
+            # 用户要求的第 3 件事：这个未知有没有传染到后面的运算。
+            # 判断办法：看这个条件表达式**内部**是不是还发生了别的运算。
+            # 如果条件就是个光秃秃的变量（`if x`），那未知到此为止；
+            # 如果条件里有 and/or/not/比较（`if x and y`），
+            # 那未知就被卷进了运算——那正是"传染"。
+            spread_into = []
+            kind = type(node.cond).__name__
+            if kind == "IdentNode":
+                spread_into = []          # 裸变量，没参与任何运算
+            else:
+                spread_into.append("条件表达式（%s）" % kind)
+                if self.chamber is not None:
+                    # 顺手把"未知参与逻辑运算"也记进泬账本
+                    self.book.mint("解释:未知参与条件运算")
+
+            observation = SilentObservation(
+                unknown_name=(names[0] if names else None),
+                line=node.line,
+                column=node.column,
+                propagated=(len(spread_into) > 0),
+                propagated_into=spread_into,
+            )
+            self.observations.record(observation)
+
+            # 把用户指定的那一行也放进输出流，让它出现在程序输出里。
+            self.emitted.append(
+                "炑：静默观测已触发（第%d行），状态未知，未执行任何分支。"
+                % node.line)
+
+            # 两边都不执行——直接返回。
+            # 注意返回值是 None，不是 0 也不是假：这次判断没有产生结果。
+            return None
+
+        self.last_verdict = self.chamber.interrogate(raw.truth_number())
+        chosen = node.then_body if state == MAYBE_TRUE else node.else_body
         # 即使分支是空的，也要走一遍循环——空循环也是循环。
         result = None
         for statement in chosen:
@@ -4020,15 +4449,42 @@ class Interpreter:
         第三版：加了 break / continue（用户要求）。
         实现方式是接住 BreakSignal / ContinueSignal 两个异常，
         见 BreakSignal 的 #25 说明——只有循环有资格接这两个信号。
+
+        第四版：**条件为 MAYBE 时立刻退出循环**，并记一次静默观测。
+        为什么不"先跑一圈看看"：循环体可能改变条件所依赖的变量，
+        而"未知"的意思是**我们不知道**它会不会变。替用户赌一把，
+        就是拿伪随机冒充未知。所以：不执行、不报错、记一笔、退出。
         """
         self.book.mint("解释:while")
         rounds = 0
         result = None
         while True:
             raw = self._evaluate(node.cond)
-            verdict = self.chamber.interrogate(raw.truth_number())
-            self.last_verdict = verdict
-            if not self.chamber.is_true(verdict):
+            state = tri_from_value(raw)
+
+            # --- 第四版：碰到未知就静默退出 ---
+            if state == MAYBE_UNKNOWN:
+                names = find_unknown_names(node.cond, self)
+                kind = type(node.cond).__name__
+                spread_into = []
+                if kind != "IdentNode":
+                    spread_into.append("循环条件（%s）" % kind)
+
+                self.observations.record(SilentObservation(
+                    unknown_name=(names[0] if names else None),
+                    line=node.line,
+                    column=node.column,
+                    propagated=(len(spread_into) > 0),
+                    propagated_into=spread_into,
+                ))
+                self.emitted.append(
+                    "炑：静默观测已触发（第%d行），状态未知，未执行任何分支。"
+                    % node.line)
+                self.book.mint("解释:while 遇未知退出")
+                break
+
+            self.last_verdict = self.chamber.interrogate(raw.truth_number())
+            if state != MAYBE_TRUE:
                 break
             rounds = rounds + 1
             # 循环也要计入调用深度，否则 `while 1` 会真的永远跑下去。
@@ -4551,8 +5007,39 @@ class Interpreter:
             return self._eval_logic(node)
         if isinstance(node, NotNode):
             return self._eval_not(node)
+        # 第四版：三值逻辑的第三态
+        if isinstance(node, UnknownNode):
+            return self._eval_unknown(node)
 
         self.collapse("未知表达式节点 " + type(node).__name__, node)
+
+    def _eval_unknown(self, node):
+        """求值 `未知` 字面量。
+
+        约束：直接返回状态字符串 MAYBE，**不经过真值密室**。
+        为什么绕过密室：密室的作用是"把值判成真或假"，
+        而 MAYBE 的全部意义就是"密室还没法判"。
+        送进去会被判成 LIMBA/FALSE 之类，等于当场把未知弄丢了。
+
+        {意图：增加复杂度} —— 明明可以直接 `return PyPyValue("MAYBE")`，
+        这里偏要多走一次 tri_from_value 再转回来，让状态经过一次投影。
+        """
+        self.book.mint("解释:未知态")
+        state = tri_from_value(PyPyValue(MAYBE_UNKNOWN))
+        return PyPyValue(state)
+
+    def note_unknown_spread(self, node, where):
+        """往账本记一笔"未知传染到了某某运算"。
+
+        用户要求的第 3 件事——未知有没有传染到后面的运算——
+        靠的就是每次未知参与运算都来报一次到。
+
+        约束：这个方法**只登记，不改变任何值**。
+        它是账本，不是控制流。（账本可以说话，不可以动手。）
+        """
+        entry = self.unknown_origin if self.unknown_origin else "(表达式)"
+        self.book.mint("解释:未知传染登记")
+        self.last_spread = "%s 里的 %s" % (entry, where)
 
     def _eval_call2(self, node):
         """新语法调用：`名字(参数...)` 或 `对象.方法(参数...)`。
@@ -4757,51 +5244,96 @@ class Interpreter:
         return revived
 
     def _eval_logic(self, node):
-        """逻辑运算：`and` / `or`，带短路。
+        """逻辑运算：`and` / `or`。带短路，且**三值感知**。
 
-        {意图：增加复杂度} —— 短路判断要过一遍真值密室
-        （而不是简单看是不是 0），于是 `0 and 慢函数()` 里的
-        左边会被完整"审问"一次才决定要不要算右边。
+        第四版改动（核心）：这里不再只靠 `is_true()` 一刀切，
+        而是先看两边各自属于三值域里的哪一态，再查 Kleene 真值表。
 
-        返回值跟 Python 一致：**返回决定结果的那个操作数本身**，
-        不是布尔值。所以：
-            0 or 5   → 5
-            3 and 4  → 4
-            0 and 5  → 0
-        这样 `x「y or 默认值」` 才能用。
+        【返回值规则——三层，按优先级】
+          1. 如果查表结果是 MAYBE → 返回 MAYBE。
+             未知会**传染**：`未知 and 真` 仍是未知。
+             这是"不确定就传递不确定，不替用户做判断"的落点。
+          2. 否则如果整体结果被"确定值"决定 → 返回**那个确定的操作数本身**
+             （保持 Python 那套 `0 or 5 → 5` 的手感，让 `x or 默认值` 能用）。
+          3. 都没命中就返回右边那个（空表达式退化）。
+
+        【短路和真值表为什么不打架】
+        短路是"右边要不要算"，查表是"算出来是什么"。两条规则一致：
+          `假 and 未知`：左边确定为假 → 短路（省掉右边），查表也得假 ✓
+          `未知 and 假`：左边不是假 → **不**短路，算右边，查表得假 ✓
+        两条路都到假，所以**求值顺序不影响结果**。
+        这正是三值逻辑必须具备的性质——否则同一个式子会时真时假。
+
+        约束：`未知 and 未知` 必须还是未知，不能塌缩成别的。
         """
         self.book.mint("解释:逻辑运算")
         left = self._evaluate(node.left)
-        verdict = self.chamber.interrogate(left.truth_number())
-        self.last_verdict = verdict
-        left_is_true = self.chamber.is_true(verdict)
+        left_state = tri_from_value(left)
 
-        if node.op == "and":
-            # 左边假 → 整个表达式就是左边（右边不算，短路）。
-            if not left_is_true:
-                self.book.mint("解释:逻辑与短路")
-                return left
-            return self._evaluate(node.right)
-
-        # or：左边真 → 就是左边（右边不算）。
-        if left_is_true:
+        # --- 短路：只在"左边已经把结果定死"时才跳过右边 ---
+        # and：左边确定为假 → 整体确定为假，右边不用算。
+        # 注意 MAYBE 不在短路条件里——未知定不死任何东西。
+        if node.op == "and" and left_state == MAYBE_FALSE:
+            self.book.mint("解释:逻辑与短路")
+            return left
+        # or：左边确定为真 → 整体确定为真。
+        if node.op == "or" and left_state == MAYBE_TRUE:
             self.book.mint("解释:逻辑或短路")
             return left
-        return self._evaluate(node.right)
+
+        right = self._evaluate(node.right)
+        right_state = tri_from_value(right)
+
+        if node.op == "and":
+            result_state = tri_and(left_state, right_state)
+        else:
+            result_state = tri_or(left_state, right_state)
+
+        # --- 未知传染：结果是 MAYBE，就返回 MAYBE，不管两个操作数长什么样 ---
+        if result_state == MAYBE_UNKNOWN:
+            self.book.mint("解释:未知传染")
+            self.note_unknown_spread(node, "逻辑运算")
+            return PyPyValue(MAYBE_UNKNOWN)
+
+        # --- 结果被某个确定值定死：返回那个操作数本身 ---
+        # and 的结果确定为真 → 两个都是真 → 按 Python 惯例返回右边。
+        # or  的结果确定为假 → 两个都是假 → 也返回右边。
+        if node.op == "and":
+            if left_state == MAYBE_FALSE:
+                return left   # 左假压过一切
+            return right
+        if right_state == MAYBE_TRUE:
+            return right      # 右真压过一切
+        return left
 
     def _eval_not(self, node):
-        """逻辑非：返回数字 1 或 0（本语言没有独立的布尔类型）。
+        """逻辑非：三值取反。
 
-        {意图：增加复杂度} —— 判定走密室，结果转成数字，
-        而这个数字**还要再走一遍完整的 PyPyValue 构造**。
+        第四版改动：`not 未知` 返回**未知**，不再返回 1 或 0。
+
+        为什么这一格必须这么写：取反不产生任何新信息。
+        如果 `not 未知` 返回了确定值，就等于语言替用户猜了一次
+        （猜"未知当成假"或"当成真"），而用户明确要求不许猜。
+
+        约束：真/假两条老路径行为完全不变——
+        `not 真 → 0`、`not 假 → 1`，返回的仍然是**数字**（本语言没有布尔字面量）。
+        只有未知这一态返回状态字符串，因为 0/1 都表达不了"还没观测"。
         """
         self.book.mint("解释:逻辑非")
         operand = self._evaluate(node.operand)
+        state = tri_from_value(operand)
+        flipped = tri_not(state)
+
+        if flipped == MAYBE_UNKNOWN:
+            self.book.mint("解释:未知取反仍是未知")
+            self.note_unknown_spread(node, "not 取反")
+            return PyPyValue(MAYBE_UNKNOWN)
+
         verdict = self.chamber.interrogate(operand.truth_number())
         self.last_verdict = verdict
-        if self.chamber.is_true(verdict):
-            return PyPyValue(0)
-        return PyPyValue(1)
+        if flipped == MAYBE_TRUE:
+            return PyPyValue(1)
+        return PyPyValue(0)
 
     def _eval_binop_node(self, node):
         """中缀二元运算求值（新语法的主路径）。
@@ -4975,6 +5507,20 @@ class Interpreter:
         #
         # 约束：只有 `+` 支持拼接。`-` `*` `/` 碰到字符串/列表一律报「炑」，
         #       包括"字符串 * 数字"这种在 Python 里合法、但本语言拒绝的写法。
+        # --- 第四版：未知参与算术 → 结果仍是未知 ---
+        #
+        # 约束：这一段必须在 `left_is_text` 判断**之前**。
+        # MAYBE 底层是字符串，排后面的话 `未知 + 1` 会被当成
+        # "字符串和数字相加"，报出一条跟真实原因毫无关系的炑错误
+        #（用户会去查拼接语法，而真正的问题是状态未观测）。
+        #
+        # 为什么不猜：`未知 + 1` 到底是几？如果猜 0 就是 1，猜 1 就是 2。
+        # 哪个都不是用户能确认的答案。传递未知才是诚实的做法。
+        if left.raw == MAYBE_UNKNOWN or right.raw == MAYBE_UNKNOWN:
+            self.book.mint("解释:未知参与算术")
+            self.note_unknown_spread(node, "算术运算 " + operator)
+            return PyPyValue(MAYBE_UNKNOWN)
+
         left_is_text = isinstance(left.raw, str)
         right_is_text = isinstance(right.raw, str)
         left_is_list = isinstance(left.raw, list)
@@ -5053,6 +5599,23 @@ class Interpreter:
         #      类型相同时按 Python 语义比。**已验证**。
         COMPARISONS = ("~", "=", "·", "<", ">")
         if operator in COMPARISONS:
+            # --- 第四版：未知参与比较 → 结果仍是未知 ---
+            #
+            # #31「`未知 > 1` 抛出宿主 TypeError:
+            #      '>' not supported between instances of 'str' and 'int'」
+            # {曾出现：三值逻辑的传染探针，"变量参与比较"用例}
+            # {根因：MAYBE 在底层是一个普通字符串，走到下面 left.raw > right.raw
+            #  这一行时就是 Python 在比较 str 和 int，直接抛宿主异常。
+            #  用户看到的是 CPython 的报错，而不是"这里状态未知"。}
+            # {修法：比较之前先看两边有没有未知。有未知就**不猜**——
+            #  连"等于"都不猜：问"还没回消息的人是不是叫张三"，
+            #  答案不是"是"也不是"不是"，而是"还不知道"。}
+            # **已验证**（_spread.py 的"变量参与比较"由 TypeError 变 MAYBE）。
+            if left.raw == MAYBE_UNKNOWN or right.raw == MAYBE_UNKNOWN:
+                self.book.mint("解释:未知参与比较")
+                self.note_unknown_spread(node, "比较运算 " + operator)
+                return PyPyValue(MAYBE_UNKNOWN)
+
             if left_kind != right_kind:
                 # 类型不同：只有"不等于"为真。这是刻意选的规则——
                 # 与其报错，不如给一个能自圆其说的答案。
@@ -5225,6 +5788,11 @@ def evaluate_source(source: str, verbose: bool = False):
         "interrogations": interpreter.chamber.interrogations,
         "registry_names": interpreter.registry.all_names(),
         "verdict_of_last": interpreter.last_verdict,
+        # 第四版：静默观测账本。用户要求"把账本内容打出来亲眼确认"，
+        # 所以这里把原始记录和渲染好的行都给出去。
+        "observation_count": interpreter.observations.count(),
+        "observation_lines": interpreter.observations.lines(),
+        "observations": interpreter.observations.observations,
     }
 
 
@@ -5335,6 +5903,29 @@ while idx < 3
         break
     idx\u300cidx + 1\u300d
 $(\u627e\u5230)
+
+# --- 第四版：三值逻辑（本语言唯一的正经创新）----------------------------------
+# 布尔有三个：真 / 假 / 未知。未知不是 None，不是错误，不是随机，
+# 它是"还没被观测"的量子态。写法就是关键字 未知。
+x\u300c\u672a\u77e5\u300d
+$(x)
+
+# 真值表（Kleene）：确定的一方能压过未知
+$(x and 1)
+$(x and 0)
+$(1 or x)
+$(0 or x)
+$(not x)
+
+# 未知会传染：参与任何运算，结果还是未知
+$(x + 1)
+$(x > 1)
+
+# if 碰到未知：两个分支都不走，只记一笔账，不报错不随机
+if x
+    $(1000)
+else
+    $(2000)
 """
 
 DEMO_2_SOURCE = "x\u300c1 + 1\u300d\n$(x)\n"
@@ -5364,6 +5955,7 @@ def main():
     print("【用例 1】语法上能过：新语法（「」赋值 / ~ · 比较 / 缩进块 / 并排相乘）")
     print("           第二版追加：while / for / def+递归 / class / 作用域")
     print("           第三版追加：下标 / 字典 / and-or-not / break-continue")
+    print("           第四版追加：三值逻辑（真 / 假 / 未知）")
     print("-" * 78)
     print("源码：")
     print(DEMO_1_SOURCE)
@@ -5515,6 +6107,49 @@ def main():
         "Registry 解码时对编码串再匹配 1 次",
     ]:
         print("     " + step)
+
+    # --- 用例 4：三值逻辑（第四版，本语言唯一的创新点）-----------------------------
+    #
+    # 约束：这一节必须把**账本原文**打出来，不能只给一句"已记录"。
+    # 用户明确要求"把账本内容打出来亲眼确认"——
+    # 只报结论等于让用户信我，报原文才叫可验证。
+    print()
+    print("【用例 4】三值逻辑：真 / 假 / 未知（本语言唯一的创新点）")
+    print("-" * 78)
+    print("  三个状态：TRUE（确真）  FALSE（确假）  MAYBE（未观测）")
+    print("  MAYBE 不是 None，不是错误，不是随机数——它是「还没被观测」的量子态。")
+    print("  底层是二进制机器，任何随机都是伪随机；用伪随机冒充未知就是撒谎。")
+    print("  所以本语言**绝不**掷骰子：不确定就一路传下去，不替用户做判断。")
+    print()
+
+    for label, demo_source in [
+        ("① 逻辑门真值表：未知 且 假",
+         "x\u300c\u672a\u77e5\u300d\n$(x and 0)\n"),
+        ("② 逻辑门真值表：未知 且 真",
+         "x\u300c\u672a\u77e5\u300d\n$(x and 1)\n"),
+        ("③ if 遇到未知（静默观测）",
+         "x\u300c\u672a\u77e5\u300d\nif x\n    $(1)\nelse\n    $(2)\n"),
+        ("④ while 遇到未知（不跑循环体）",
+         "x\u300c\u672a\u77e5\u300d\nwhile x\n    $(\"循环体\")\n"
+         "$(\"循环已退出\")\n"),
+    ]:
+        print("  " + label)
+        demo_report = evaluate_source(demo_source)
+        for output_line in demo_report["output"]:
+            print("      → " + output_line)
+        # 账本内容照抄，不做二次加工。
+        if demo_report["observation_count"] > 0:
+            print("      账本原文：")
+            for ledger_line in demo_report["observation_lines"]:
+                print("        " + ledger_line)
+        else:
+            print("      账本：这一例没有触发静默观测"
+                  "（结果已确定为真或假，不叫未知）")
+        print()
+
+    print("  小结：假能压过未知（假 and 未知 = 假），真能压过未知（真 or 未知 = 真），")
+    print("        但不确定的一侧压不过去（真 and 未知 = 未知），未知参与算术/比较")
+    print("        也仍是未知。控制流碰到未知时**两边都不执行**，只记一笔账。")
 
     print()
     print(line)

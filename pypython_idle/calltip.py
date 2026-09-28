@@ -247,7 +247,7 @@ SYNTAX_CARDS = {
         "\u6ca1\u6709 key \u65f6\u8bfb\u4f1a\u62a5\u9519\uff08\u4e0d\u4f1a\u81ea\u52a8\u5efa\uff09\u3002"
     ),
     "logic": (
-        "pyPython \u903b\u8f91\u8fd0\u7b97\n"
+        "pyPython \u903b\u8f91\u8fd0\u7b97\uff08\u4e09\u503c\uff09\n"
         "\n"
         "  a and b\n"
         "  a or b\n"
@@ -255,13 +255,34 @@ SYNTAX_CARDS = {
         "\n"
         "\u7528\u5355\u8bcd\uff0c\u4e0d\u662f && || !\u3002\n"
         "\n"
-        "\u4f1a\u77ed\u8def\uff1a\u53f3\u8fb9\u4e0d\u4e00\u5b9a\u4f1a\u7b97\u3002\n"
-        "\u8fd4\u56de\u7684\u662f**\u51b3\u5b9a\u7ed3\u679c\u7684\u90a3\u4e2a\u64cd\u4f5c\u6570**\uff0c\n"
-        "\u4e0d\u662f 1/0\uff08\u8ddf Python \u4e00\u6837\uff09\uff1a\n"
-        "  0 or 5   \u2192 5\n"
-        "  3 and 4  \u2192 4\n"
+        "\u4e09\u4e2a\u72b6\u6001\uff1a\u771f / \u5047 / \u672a\u77e5\uff08\u672a\u89c2\u6d4b\uff09\n"
+        "\n"
+        "\u771f\u503c\u8868\uff08Kleene\uff09\uff1a\n"
+        "  \u5047 and \u672a\u77e5 = \u5047     \u771f or  \u672a\u77e5 = \u771f\n"
+        "  \u771f and \u672a\u77e5 = \u672a\u77e5    \u5047 or  \u672a\u77e5 = \u672a\u77e5\n"
+        "  \u672a\u77e5 and \u672a\u77e5 = \u672a\u77e5  not \u672a\u77e5 = \u672a\u77e5\n"
+        "\n"
+        "\u786e\u5b9a\u7684\u4e00\u65b9\u80fd\u538b\u8fc7\u672a\u77e5\uff0c\n"
+        "\u4e0d\u786e\u5b9a\u5c31\u4f20\u4e0b\u53bb\u3002\n"
         "\n"
         "  x\u300cy or \u9ed8\u8ba4\u503c\u300d   \u5e38\u7528\u5199\u6cd5"
+    ),
+    "unknown": (
+        "pyPython \u7b2c\u4e09\u6001\uff1a\u672a\u77e5\n"
+        "\n"
+        "  \u672a\u77e5\n"
+        "\n"
+        "\u4e0d\u662f None\uff0c\u4e0d\u662f\u9519\u8bef\uff0c\u4e0d\u662f\u968f\u673a\u3002\n"
+        "\u5b83\u662f\u201c\u8fd8\u6ca1\u88ab\u89c2\u6d4b\u201d\u7684\u72b6\u6001\u3002\n"
+        "\n"
+        "  x\u300c\u672a\u77e5\u300d\n"
+        "  $(\u672a\u77e5)          \u8f93\u51fa MAYBE \u27e8MAYBE\u27e9\n"
+        "  $(x and 1)       \u8f93\u51fa MAYBE\n"
+        "  $(x and 0)       \u8f93\u51fa 0\uff08\u5047\u80fd\u538b\u8fc7\u672a\u77e5\uff09\n"
+        "\n"
+        "\u5b83\u662f\u5173\u952e\u5b57\uff0c\u8d4b\u503c\u8986\u76d6\u4e0d\u6389\u3002\n"
+        "\n"
+        "if \u78b0\u5230\u5b83\uff1a\u4e24\u8fb9\u90fd\u4e0d\u8d70\uff0c\u53ea\u8bb0\u4e00\u7b14\u8d26\u3002"
     ),
     "loopcontrol": (
         "pyPython \u5faa\u73af\u63a7\u5236\n"
@@ -384,6 +405,9 @@ class Calltip:
         # 但跟 while 不冲突（首词不同）。
         if first_word in ("break", "continue"):
             return "loopcontrol"
+        # 第四版新增：三值逻辑的第三态。
+        if first_word == "\u672a\u77e5":
+            return "unknown"
 
         # 2) 输出引导符 $ 后面跟 (
         if "$(" in stripped:

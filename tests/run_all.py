@@ -30,6 +30,8 @@ SUITES = [
     ("test_auto_indent.py", "真实编辑器按回车自动缩进"),
     ("test_ide_v2.py", "IDE：高亮 / 补全 / 语法卡片 / F5 端到端"),
     ("test_ide_v3.py", "IDE 第三版：新关键字高亮 / 补全 / 卡片 / 缩进边界"),
+    ("test_v4_three_valued.py",
+     "第四版：三值逻辑真值表 / 未知传染 / 静默观测账本"),
 ]
 
 

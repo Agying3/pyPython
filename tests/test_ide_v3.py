@@ -164,6 +164,62 @@ check("_closere 认得 break", pyparse._closere("break") is not None)
 check("_closere 认得 continue", pyparse._closere("continue") is not None)
 check("_closere 不匹配 'continues'", pyparse._closere("continues") is None)
 
+# =====================================================================
+print()
+print("=" * 74)
+print("6. 第四版：未知 在 IDE 里的表现")
+print("=" * 74)
+
+# 6.1 高亮：必须染成 KEYWORD，否则用户看不出它是关键字而不是普通变量。
+ed4 = flist.new()
+ed4.text.insert("1.0", "x\u300c\u672a\u77e5\u300d\nif \u672a\u77e5\n    $(\u672a\u77e5)\n")
+root.update_idletasks()
+check("高亮器存在", ed4.color is not None)
+if ed4.color:
+    ed4.color.recolorize()
+    root.update_idletasks()
+    body4 = ed4.text.get("1.0", "end-1c")
+
+    def is_kw4(word):
+        pos = body4.find(word)
+        while pos >= 0:
+            if "KEYWORD" in ed4.text.tag_names("1.0 + %dc" % pos):
+                return True
+            pos = body4.find(word, pos + 1)
+        return False
+
+    check("未知 染成 KEYWORD", is_kw4("\u672a\u77e5"))
+    # 反向：不能把普通标识符里的子串误染。
+    ed4b = flist.new()
+    ed4b.text.insert("1.0", "\u672a\u77e5\u6570\u300c1\u300d\n$(\u672a\u77e5\u6570)\n")
+    root.update_idletasks()
+    if ed4b.color:
+        ed4b.color.recolorize()
+        root.update_idletasks()
+        body4b = ed4b.text.get("1.0", "end-1c")
+        pos = body4b.find("\u672a\u77e5\u6570")
+        # 「未知数」是个完整标识符，正则在 \b 边界上不该认出「未知」。
+        tok = ed4b.color.prog.match(body4b, pos)
+        check("未知数 不被当成 未知（整体是个标识符）",
+              tok is None or tok.group() != "\u672a\u77e5",
+              "实际匹配: %r" % (tok.group() if tok else None))
+
+# 6.2 自动缩进：未知 不是块开启者，按回车不该多缩进。
+got4 = auto_indent_after("x\u300c\u672a\u77e5\u300d")
+check("未知 所在行后按回车不多缩进", not got4.startswith("    "),
+      "实际第二行: %r" % got4)
+
+# 6.3 pyparse 边界
+check("未知 不是块开启者",
+      "\u672a\u77e5" not in pyparse.PYPYTHON_BLOCK_OPENERS)
+
+# 6.4 补全与卡片
+check("补全表里有 未知", "\u672a\u77e5" in autocomplete.completion_kwds)
+check("有 unknown 语法卡片", "unknown" in calltip.SYNTAX_CARDS)
+check("logic 卡片提到三值",
+      "\u4e09\u503c" in calltip.SYNTAX_CARDS["logic"]
+      or "\u672a\u77e5" in calltip.SYNTAX_CARDS["logic"])
+
 print()
 print("=" * 74)
 print("通过 %d / 失败 %d" % (passed, failed))

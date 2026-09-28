@@ -100,6 +100,7 @@ import pypython
 # **已验证**（_probe_highlight 逐个关键词检查着色标签）。
 #
 # 第三版新增 break/continue/and/or/not。
+# 第四版新增 未知（三值逻辑第三态）。
 PYPYTHON_KEYWORDS = [
     "if", "else",
     "while", "for", "in",
@@ -108,6 +109,7 @@ PYPYTHON_KEYWORDS = [
     "全局",
     "break", "continue",
     "and", "or", "not",
+    "未知",
 ]
 
 # 运算符。`~` 和 `·` 是本语言特有的比较符，必须染色。
@@ -372,6 +374,7 @@ IDENTIFIER_RE = _re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 # 用户敲 Tab 时最想看到的就是这些。
 # 第二版加上了 while/for/def/class 这几个新的块关键字。
 # 第三版加上 break/continue/and/or/not 和字典用的 { } :。
+# 第四版加上 未知（三值逻辑第三态）。
 COMPLETION_SKELETONS = [
     "if", "else",
     "while", "for", "in",
@@ -380,6 +383,7 @@ COMPLETION_SKELETONS = [
     "全局",
     "break", "continue",
     "and", "or", "not",
+    "未知",
     "$(",
     "\u300c", "\u300d",
     "{", "}", ":",

@@ -41,6 +41,10 @@ DEBUG = False
 # 所以照样列进来；判断"能不能开一条语句"的地方（pyparse 的
 # PYPYTHON_BLOCK_OPENERS、pypython.py 的 STATEMENT_KEYWORDS）
 # 千万不要跟着加这三个。
+#
+# 第四版再新增 未知（三值逻辑的第三态）。它必须高亮——
+# 用户写 `x「未知」` 时得能一眼看出这是个关键字，
+# 而不是一个叫"未知"的普通变量（后者会被覆盖，前者不会）。
 PYPYTHON_KEYWORDS = [
     "if", "else",
     "while", "for", "in",
@@ -49,6 +53,7 @@ PYPYTHON_KEYWORDS = [
     "全局",
     "break", "continue",
     "and", "or", "not",
+    "未知",
 ]
 
 # pyPython 没有内置函数，也没有类。这个列表**刻意留空**——
