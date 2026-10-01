@@ -1,0 +1,67 @@
+name: 测试
+
+# 每次 push / PR 都跑一遍全量回归。
+#
+# 为什么要这个东西：本项目的风险几乎全是"静默失效"——
+# 关键字表 8 份副本漏改一处、装饰性调用链接错一环，
+# 都不报错，只是安静地不干活。这种 bug 本地跑绿、别人克隆就炸。
+# CI 是一台干净机器，专门用来打破"只在我电脑上成立"的假设。
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 三个版本都在本机实跑验证过：12 / 13 / 14 全部 12 个脚本通过。
+        # 3.13 是开发用的版本；两端各留一个，将来上游变了能早发现。
+        python-version: ["3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 纯解释器部分：不开窗口，直接跑。
+      # 这几个是核心，先跑，失败就早停。
+      - name: 回归 - 解释器（不开窗）
+        run: |
+          python -X utf8 tests/test_adr0001_no_exec.py
+          python -X utf8 tests/test_v2_core.py
+          python -X utf8 tests/test_v2_errors.py
+          python -X utf8 tests/test_v3_core.py
+          python -X utf8 tests/test_v4_three_valued.py
+          python -X utf8 tests/test_blank_lines.py
+          python -X utf8 tests/test_keyword_sync.py
+          python -X utf8 tests/test_examples.py
+          python -X utf8 tests/test_wiki_examples.py
+
+      # IDE 部分要真开 Tk 窗口。Linux runner 没有显示器，
+      # 所以套一层 xvfb-run 造一个虚拟 X server。
+      # 必须装 python3-tk，否则 import tkinter 直接失败。
+      - name: 装 Tk
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-tk xvfb
+
+      - name: 回归 - IDE（需要虚拟显示器）
+        run: |
+          xvfb-run -a python -X utf8 tests/test_auto_indent.py
+          xvfb-run -a python -X utf8 tests/test_ide_v2.py
+          xvfb-run -a python -X utf8 tests/test_ide_v3.py
+
+      # 总入口再跑一遍，确认 run_all.py 自己也是好的。
+      # run_all.py 会按顺序拉起全部 12 个脚本 —— 在 CI 上它自己
+      # 也得能跑，否则"一把跑完"这个承诺是假的。
+      - name: 总入口
+        run: xvfb-run -a python -X utf8 tests/run_all.py
