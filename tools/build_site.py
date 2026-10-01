@@ -198,6 +198,18 @@ def build(check_only=False):
 
     written = []
 
+    # ------------------------------------------------------------ 封面
+    # 只有首页有这一屏。
+    # {意图：整屏壁纸 + 站点标题居中，往下滑才露出左栏和文章列表；
+    #       参考站就是这个行为。文章页不放 —— 读者点进去是要看内容的，
+    #       再让他滑一屏是浪费他时间}
+    COVER = """<header class="cover">
+    <h1 class="cover-title">pyPython</h1>
+    <p class="cover-sub">这个项目不追求正确，只追求过程</p>
+    <a class="cover-scroll" href="#main" aria-label="向下滚动">⌄</a>
+</header>
+"""
+
     # ------------------------------------------------------------ 首页
     cards = "".join(
         post_card(a, meta[a["slug"]][0], meta[a["slug"]][1], root="")
@@ -223,6 +235,8 @@ def build(check_only=False):
         "DESC": "一门寄生于 CPython 的解释型语言。目标是比 CPython 慢两个数量级。",
         "ROOT": "",
         "BODY": home_body,
+        "COVER": COVER,
+        "BODY_CLASS": ' class="has-cover"',
         "A_HOME": ' class="active"',
         "A_POSTS": "",
         "N_POSTS": str(len(ARTICLES)),
@@ -271,6 +285,9 @@ def build(check_only=False):
             "DESC": a["desc"],
             "ROOT": "../",
             "BODY": body,
+            # 文章页没有封面，也没有 has-cover —— 导航栏直接是实色
+            "COVER": "",
+            "BODY_CLASS": "",
             "A_HOME": "",
             "A_POSTS": ' class="active"',
             "N_POSTS": str(len(ARTICLES)),

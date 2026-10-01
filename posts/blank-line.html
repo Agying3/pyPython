@@ -23,11 +23,12 @@
 <body>
 
 <!-- 页面骨架：这个文件是**唯一**一份布局。
-     左栏、导航、页脚都在这里，7 个页面共用。
+     左栏、导航、页脚都在这里，所有页面共用。
      加页面时不用复制粘贴侧边栏 —— 本项目因为"同一份东西抄多份然后漂移"
      栽过十几次，所以宁可加一个构建脚本。 -->
 
 <div class="top-shade"></div>
+
 
 <nav class="navbar">
     <a class="brand" href="../index.html">
@@ -45,7 +46,7 @@
     </div>
 </nav>
 
-<div class="layout">
+<div class="layout" id="main">
 
     <aside class="sidebar">
 
@@ -313,6 +314,19 @@ document.getElementById('themeBtn').addEventListener('click', function () {
             root.classList.contains('darkmode') ? 'dark' : 'light');
     } catch (e) {}
 });
+
+/* 有封面的页面：导航栏一开始透明叠在壁纸上，往下滑过一段才变实色。
+   没有封面的页面（文章页）导航栏一直是实色，不需要这段。 */
+(function () {
+    var nav = document.querySelector('.navbar');
+    if (!nav || !document.body.classList.contains('has-cover')) return;
+    var onScroll = function () {
+        if (window.scrollY > 60) nav.classList.add('scrolled');
+        else nav.classList.remove('scrolled');
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+})();
 </script>
 
 </body>

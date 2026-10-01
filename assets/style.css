@@ -214,6 +214,93 @@ body > .top-shade {
     transform: rotate(20deg);
 }
 
+/* ---------------------------------------------------------------- 封面
+
+   参考站的第一屏是**一整屏壁纸**，中间只有站点标题，底下有个向下的箭头，
+   往下滑才露出左栏和文章列表。
+
+   @ADR-0010 第 6 条：这个封面**只在首页**出现，文章页不放 ——
+   读者点进来是要看内容的，再让他滑一屏是浪费他时间。 */
+
+.cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 22px 96px;
+    color: #fff;
+    position: relative;
+}
+
+.cover-title {
+    font-size: 46px;
+    font-weight: 700;
+    margin: 0 0 16px;
+    letter-spacing: 3px;
+    /* 两层阴影：近处一层保证边缘清楚，远处一层把字从背景里拉出来。
+       壁纸浅色区域（比如那面砖墙）上，只靠一层柔和阴影读不清。 */
+    text-shadow: 0 2px 6px rgba(0, 0, 0, .55), 0 8px 30px rgba(0, 0, 0, .5);
+}
+
+.cover-sub {
+    font-size: 16px;
+    margin: 0;
+    opacity: .98;
+    letter-spacing: .5px;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .8), 0 3px 16px rgba(0, 0, 0, .6);
+}
+
+/* 向下的箭头。
+   {意图：整屏壁纸容易让人以为是张图、不滑就走了，箭头是"下面还有东西"的提示} */
+.cover-scroll {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 30px;
+    text-align: center;
+    color: #fff;
+    font-size: 32px;
+    line-height: 1;
+    text-decoration: none;
+    opacity: .95;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .75);
+    animation: cover-bounce 2.1s ease-in-out infinite;
+}
+
+.cover-scroll:hover { opacity: 1; }
+
+@keyframes cover-bounce {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(11px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cover-scroll { animation: none; }
+}
+
+/* 有封面的页面：导航栏一开始透明（叠在壁纸上），滑过封面才变实色。
+   参考站就是这个行为。 */
+body.has-cover .navbar {
+    background: transparent;
+    border-bottom-color: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+body.has-cover .navbar.scrolled {
+    background: rgba(var(--theme-rgb), .82);
+    border-bottom-color: rgba(255, 255, 255, .12);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+}
+
+/* 封面已经占满一屏，内容区不用再躲导航栏 */
+body.has-cover .layout {
+    padding-top: 44px;
+}
+
 /* ---------------------------------------------------------------- 布局骨架
 
    左栏 300px + 右侧自适应。参考图就是这个结构。 */
