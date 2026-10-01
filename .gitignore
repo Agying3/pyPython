@@ -39,3 +39,7 @@ tools/check_v2.py
 
 _commit_msg.txt
 _*.md
+
+# 临时文件（提交信息、截图、一次性脚本）
+_*
+

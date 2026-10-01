@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pyPython</title>
-<meta name="description" content="一门寄生于 CPython 的解释型语言。目标是比 CPython 慢两个数量级。">
-<link rel="stylesheet" href="assets/style.css">
+<title>{{TITLE}}</title>
+<meta name="description" content="{{DESC}}">
+<link rel="stylesheet" href="{{ROOT}}assets/style.css">
 <script>
 /* 深色模式：首次跟随系统偏好，之后记住选择。
    必须在 <head> 里同步执行，否则会闪一下白底再变暗。 */
@@ -30,12 +30,12 @@
 <div class="top-shade"></div>
 
 <nav class="navbar">
-    <a class="brand" href="index.html">
+    <a class="brand" href="{{ROOT}}index.html">
         <span class="logo">炑</span><span class="name">pyPython</span>
     </a>
     <div class="nav-links">
-        <a href="index.html" class="active">🏠 首页</a>
-        <a href="index.html#posts">📄 文章</a>
+        <a href="{{ROOT}}index.html"{{A_HOME}}>🏠 首页</a>
+        <a href="{{ROOT}}index.html#posts"{{A_POSTS}}>📄 文章</a>
         <a href="https://github.com/Agying3/pyPython/wiki">📚 Wiki</a>
         <a href="https://github.com/Agying3/pyPython/tree/master/docs/decisions">📐 ADR</a>
         <a href="https://github.com/Agying3/pyPython">🐍 仓库</a>
@@ -65,8 +65,8 @@
         </div>
 
         <nav class="side-nav">
-            <a href="index.html" class="active">🏠 首页</a>
-            <a href="index.html#posts">📄 全部文章</a>
+            <a href="{{ROOT}}index.html"{{A_HOME}}>🏠 首页</a>
+            <a href="{{ROOT}}index.html#posts"{{A_POSTS}}>📄 全部文章</a>
             <a href="https://github.com/Agying3/pyPython/wiki">📚 Wiki</a>
             <a href="https://github.com/Agying3/pyPython/tree/master/docs/decisions">📐 架构决策（ADR）</a>
         </nav>
@@ -84,14 +84,14 @@
                 <div class="overview-name">pyPython</div>
                 <div class="overview-bio">一门寄生于 CPython 的解释型语言</div>
                 <div class="overview-stats">
-                    <a href="index.html#posts">
-                        <span class="num">4</span>文章
+                    <a href="{{ROOT}}index.html#posts">
+                        <span class="num">{{N_POSTS}}</span>文章
                     </a>
                     <a href="https://github.com/Agying3/pyPython/wiki">
-                        <span class="num">11</span>Wiki
+                        <span class="num">{{N_WIKI}}</span>Wiki
                     </a>
                     <a href="https://github.com/Agying3/pyPython/tree/master/docs/decisions">
-                        <span class="num">10</span>ADR
+                        <span class="num">{{N_ADR}}</span>ADR
                     </a>
                 </div>
             </div>
@@ -100,55 +100,7 @@
     </aside>
 
     <main class="content">
-        <div class="post-card">
-            <h2 class="post-title plain" style="text-align:center;">
-                欢迎来到 pyPython
-            </h2>
-            <p style="text-align:center;color:var(--text-sub);margin:0;">
-                一门用纯 Python 写的解释器，故意比 CPython 慢两个数量级。<br>
-                下面是这个项目里值得单独讲讲的几件事。
-            </p>
-        </div>
-
-        <h2 id="posts" class="section-title">📄 全部文章</h2>
-
-        <a class="post-card" href="posts/why-slow.html">
-            <h3 class="post-title">这门语言为什么这么慢</h3>
-            <div class="post-meta">
-                <span class="m">📅 2026-10-01</span>
-                <span class="m">📄 697 字</span>
-                <span class="m">🕐 2 分钟</span>
-            </div>
-            <div class="post-tags">🔖 <span class="tag">性能</span><span class="tag">基准测试</span></div>
-        </a>
-        <a class="post-card" href="posts/three-valued.html">
-            <h3 class="post-title">我给了布尔值第三个状态</h3>
-            <div class="post-meta">
-                <span class="m">📅 2026-10-01</span>
-                <span class="m">📄 1,003 字</span>
-                <span class="m">🕐 3 分钟</span>
-            </div>
-            <div class="post-tags">🔖 <span class="tag">三值逻辑</span><span class="tag">语言设计</span></div>
-        </a>
-        <a class="post-card" href="posts/blank-line.html">
-            <h3 class="post-title">一个空行引发的血案</h3>
-            <div class="post-meta">
-                <span class="m">📅 2026-10-01</span>
-                <span class="m">📄 1,025 字</span>
-                <span class="m">🕐 3 分钟</span>
-            </div>
-            <div class="post-tags">🔖 <span class="tag">踩坑</span><span class="tag">静默失效</span></div>
-        </a>
-        <a class="post-card" href="posts/no-matplotlib.html">
-            <h3 class="post-title">为什么我坚持不用 matplotlib</h3>
-            <div class="post-meta">
-                <span class="m">📅 2026-10-01</span>
-                <span class="m">📄 890 字</span>
-                <span class="m">🕐 2 分钟</span>
-            </div>
-            <div class="post-tags">🔖 <span class="tag">工程</span><span class="tag">ADR-0001</span></div>
-        </a>
-
+{{BODY}}
     </main>
 
 </div>
@@ -162,7 +114,7 @@
     <span class="sep">·</span>
     <a href="https://github.com/Agying3/pyPython/blob/master/LICENSE">WTFPL</a>
     <span class="sep">·</span>
-    本站由 tools/build_site.py 生成
+    {{BUILD_NOTE}}
 </footer>
 
 <script>

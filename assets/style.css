@@ -2,60 +2,77 @@
    pyPython 文档站 —— 样式
    ==========================================================================
 
-   外观参考 Argon（github.com/solstice23/argon-theme，GPL-3.0），
-   那是一套 WordPress 主题。这里是**手写的静态复刻**，没有装那个主题。
+   @ADR-0010：文档站用静态复刻而非博客系统；见 docs/decisions/0010-文档站静态复刻.md
+   {意图：Argon 是 PHP + WordPress，Pages 只能托管静态文件，物理上装不了；
+          更硬的理由是 ADR-0001 禁止第三方依赖。
+          取舍：加文章要跑一次构建脚本，换来零依赖、布局只有一份}
 
-   #1「`gh-pages` 孤儿分支第一次提交之前切走，整个分支连同文件一起消失」
+   外观参考 xing.xo.je（站主同意）。原站用的是 Argon 主题的观感：
+   左栏信息面板 + 右侧半透明卡片 + 顶部半透明导航。
+
+   #41「把 CSS 注释里的示例当成真实配置，主色抄错了」
    {
-     曾出现：本文件第一版写完、还没提交就 `git checkout master` 去写 ADR，
-             回来发现分支不存在了，CSS 和 ADR 全丢，只能重写
-     根因：`checkout --orphan` 建的分支**没有父提交**，在第一次 commit 之前
-           不算真实分支；切走时 Git 直接丢弃，工作区也一并清掉
-     修法：建完孤儿分支**立刻提交一次**，再做别的
-     教训：另一条相关坑方向相反 —— 建完分支后 master 的文件还在磁盘上，
-           那时 `git add -A` 会把整个解释器提交进 gh-pages。
-           两个坑连在一起：**先清干净，再立刻提交，然后才切走**
+     曾出现：我把主色写成 #009688（青），而原站实际是 #5e72e4（紫）。
+             直到截了图对比才发现：导航栏、栏目标题、文章标题全是紫的
+     根因：原站自定义 CSS 里有这么一段（下面把 CSS 注释符号写成「」，
+           因为 CSS 的块注释不能嵌套 —— 我第一版真写成了嵌套注释，
+           内层那个结束符号直接把外层提前结束掉，整个样式表就废了。
+           更糟的是我在写这条教训时，又在同一段注释里打了那两个字面字符，
+           于是又断了一次。所以这里一律用「」代替）——
+             :root {
+                 「也可以用类似于 --color-border-on-foreground-deeper: #009688; 这样的命令」
+                 --color-border-on-foreground-deeper: rgba(var(--themecolor-rgbstr));
+             }
+           那个 #009688 是**注释里的示例**，示范语法用的，不是配置。
+           全文只有一处 --themecolor 声明，值是 #5e72e4
+     修法：改成 #5e72e4
+     教训：**注释里的值不是配置。** 同一类错误我在本文件的自检脚本里
+           刚防过一次（检查"没混进默认色"时必须先剥掉注释，否则误报），
+           结果转头自己去读注释了。
+           本项目那条老教训在这里第三次应验：不要猜哪个值生效，读真正生效的那一处
    }
 
-   @ADR-0010：文档站用静态复刻而非博客系统；见 docs/decisions/0010-文档站静态复刻.md
-   {意图：Argon 是 PHP + WordPress，而 Pages 只能托管静态文件，物理上装不了；
-          更硬的理由是 ADR-0001 禁止第三方依赖 —— 解释器里连 json/pickle 都
-          自己写了编码，文档站装一整套 WordPress 说不过去。
-          取舍：加文章要手写 HTML、没有后台，换来零构建步骤、零依赖}
-
-   视觉参数来自原站（站主同意参考）。注意主色**不是** Argon 的默认值：
-     Argon 默认 --themecolor: #5e72e4（蓝紫），原站覆盖成了 #009688（青）。
-     HTML 的 <meta name="theme-color"> 里写的是 #5e72e4，那是**默认值**，
-     不是实际生效的值 —— 要读自定义 CSS 里的变量覆盖。
+   背景：单张壁纸（波奇酱），深浅色都用它，深色模式压暗。
+   #42「按文件名认定图片内容，把蜡笔小新当成了波奇酱」
+   {
+     曾出现：我把 卧室-夜晚-小新-scaled.jpg 直接当成"蜡笔小新的深夜卧室"，
+             写进 ADR、照搬上站，从没验证过图里画的是什么
+     根因：文件名不是内容。而且当时模型看不了图，只能猜
+     修法：换成 day.jpg（波奇酱，用户确认）
+     教训：**文件名不等于内容。** 看不了图就不要对图里是什么下结论，
+           要么问，要么把候选摆出来让人挑
+   }
    ========================================================================== */
 
 :root {
-    --theme: #009688;
-    --theme-rgb: 0, 150, 136;
+    --theme: #5e72e4;
+    --theme-rgb: 94, 114, 228;
+    --theme-dark: #4c5fd7;
     --card-radius: 15px;
-    --bg-card: #ffffff;
+    --card-bg: rgba(255, 255, 255, .82);
+    --card-bg-solid: #ffffff;
     --bg-body: #f4f6f9;
-    --text: #32325d;
+    --text: #364863;
     --text-sub: #8898aa;
-    --border: rgba(0, 0, 0, .05);
-    --nav-h: 62px;
+    --border: rgba(0, 0, 0, .06);
+    --nav-h: 52px;
+    --side-w: 300px;
     --shadow: 0 .125rem .25rem rgba(0, 0, 0, .075);
-    --shadow-lg: 0 15px 35px rgba(50, 50, 93, .1), 0 5px 15px rgba(0, 0, 0, .07);
+    --shadow-lg: 0 8px 24px rgba(50, 50, 93, .12), 0 3px 10px rgba(0, 0, 0, .06);
 }
 
 html.darkmode {
-    --bg-card: #1e1e2d;
+    --card-bg: rgba(30, 30, 45, .82);
+    --card-bg-solid: #1e1e2d;
     --bg-body: #151521;
-    --text: #e9ecef;
+    --text: #d8dce8;
     --text-sub: #8a8a9e;
-    --border: rgba(255, 255, 255, .07);
-    --shadow: 0 .125rem .25rem rgba(0, 0, 0, .3);
-    --shadow-lg: 0 15px 35px rgba(0, 0, 0, .4);
+    --border: rgba(255, 255, 255, .08);
+    --shadow: 0 .125rem .25rem rgba(0, 0, 0, .35);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, .45);
 }
 
 * { box-sizing: border-box; }
-
-html { scroll-behavior: smooth; }
 
 body {
     margin: 0;
@@ -72,41 +89,25 @@ body {
 
 /* ---------------------------------------------------------------- 背景层
 
-   两张壁纸叠在固定层上，只切 opacity 做交叉淡入。
-   {意图：深色模式要自动换成夜景图；用两层 opacity 切换而不是 JS 换
-          background-image，因为这样自带 .5s 过渡，且不需要 JS 参与选图}
-   这个做法是从原站学来的。 */
+   单张壁纸固定铺满。深色模式只是压暗，不换图。
+   {意图：用户要波奇酱，不要那张蜡笔小新的卧室图；所以深浅色共用一张} */
 
-body::before,
-body::after {
+body::before {
     content: '';
     position: fixed;
     inset: 0;
     z-index: -2;
-    background-position: center;
-    background-size: cover;
-    background-repeat: no-repeat;
-    transition: opacity .5s ease;
-}
-
-body::before {
-    background-image: url("img/day.jpg");
+    background: url("img/bg.jpg") center/cover no-repeat;
     opacity: .7;
+    transition: opacity .5s ease, filter .5s ease;
 }
 
-body::after {
-    background-image: url("img/night.jpg");
-    opacity: 0;
+html.darkmode body::before {
+    opacity: .55;
+    filter: brightness(.62);
 }
 
-html.darkmode body::before { opacity: 0; }
-html.darkmode body::after  { opacity: .7; }
-
-/* 深色模式压暗背景，否则夜里看太刺眼 */
-html.darkmode body::before,
-html.darkmode body::after { filter: brightness(.65); }
-
-/* 顶部渐变遮罩：让导航栏文字在任何壁纸上都读得清 */
+/* 顶部渐变遮罩：让半透明导航栏上的文字在任何壁纸上都读得清 */
 body > .top-shade {
     position: fixed;
     left: 0;
@@ -116,9 +117,7 @@ body > .top-shade {
     z-index: -1;
     pointer-events: none;
     background: linear-gradient(180deg,
-        rgba(0, 0, 0, .28) 0%,
-        rgba(0, 0, 0, .16) 35%,
-        rgba(0, 0, 0, 0) 100%);
+        rgba(0, 0, 0, .22) 0%, rgba(0, 0, 0, .12) 40%, rgba(0, 0, 0, 0) 100%);
 }
 
 /* ---------------------------------------------------------------- 导航栏 */
@@ -132,245 +131,486 @@ body > .top-shade {
     z-index: 100;
     display: flex;
     align-items: center;
-    padding: 0 22px;
-    /* 毛玻璃 —— Argon 观感的核心 */
+    padding: 0 18px;
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    background: rgba(255, 255, 255, .72);
-    border-bottom: 1px solid var(--border);
+    /* 主题色半透明 —— 参考图里导航栏是带色彩的一层，不是白的 */
+    background: rgba(var(--theme-rgb), .78);
+    border-bottom: 1px solid rgba(255, 255, 255, .12);
     transition: background .3s ease;
 }
 
-html.darkmode .navbar { background: rgba(21, 21, 33, .72); }
-
 .navbar .brand {
+    color: #fff;
     font-weight: 700;
-    font-size: 17px;
-    color: var(--theme);
+    font-size: 15.5px;
     text-decoration: none;
     letter-spacing: .5px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-right: 14px;
+}
+
+.navbar .brand .logo {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, .22);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
 }
 
 .navbar .nav-links {
-    margin-left: auto;
     display: flex;
-    gap: 4px;
+    gap: 2px;
     align-items: center;
 }
 
 .navbar .nav-links a {
-    color: var(--text);
+    color: rgba(255, 255, 255, .92);
     text-decoration: none;
-    font-size: 14px;
-    padding: 7px 13px;
+    font-size: 13.5px;
+    padding: 7px 12px;
     border-radius: 8px;
-    transition: background .2s, color .2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: background .2s;
+    white-space: nowrap;
 }
 
-.navbar .nav-links a:hover {
-    background: rgba(var(--theme-rgb), .1);
-    color: var(--theme);
+.navbar .nav-links a:hover,
+.navbar .nav-links a.active {
+    background: rgba(255, 255, 255, .18);
+    color: #fff;
+}
+
+.navbar .nav-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .theme-toggle {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--text);
+    background: rgba(255, 255, 255, .14);
+    border: none;
+    color: #fff;
     cursor: pointer;
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1;
-    margin-left: 6px;
     transition: background .2s, transform .3s;
 }
 
 .theme-toggle:hover {
-    background: rgba(var(--theme-rgb), .12);
+    background: rgba(255, 255, 255, .26);
     transform: rotate(20deg);
 }
 
-/* ---------------------------------------------------------------- 页头 */
+/* ---------------------------------------------------------------- 布局骨架
 
-.banner {
-    padding: calc(var(--nav-h) + 74px) 22px 54px;
-    text-align: center;
-    color: #fff;
-}
+   左栏 300px + 右侧自适应。参考图就是这个结构。 */
 
-.banner-title {
-    font-size: 42px;
-    font-weight: 700;
-    margin: 0 0 12px;
-    text-shadow: 0 5px 15px rgba(0, 0, 0, .3);
-    letter-spacing: 1px;
-}
-
-.banner-subtitle {
-    font-size: 15px;
-    opacity: .95;
-    margin: 0;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, .3);
-}
-
-.site-state {
+.layout {
     display: flex;
-    justify-content: center;
-    gap: 34px;
-    margin-top: 26px;
-}
-
-.site-state-item {
-    color: #fff;
-    text-align: center;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, .35);
-}
-
-.site-state-item-count {
-    display: block;
-    font-size: 21px;
-    font-weight: 700;
-    line-height: 1.2;
-}
-
-.site-state-item-name {
-    font-size: 12px;
-    opacity: .9;
-}
-
-/* ---------------------------------------------------------------- 容器 */
-
-.container {
-    max-width: 860px;
+    gap: 22px;
+    max-width: 1220px;
     margin: 0 auto;
-    padding: 0 22px 70px;
+    padding: calc(var(--nav-h) + 26px) 18px 40px;
+    align-items: flex-start;
 }
 
-/* ---------------------------------------------------------------- 卡片 */
+.sidebar {
+    width: var(--side-w);
+    flex-shrink: 0;
+    position: sticky;
+    top: calc(var(--nav-h) + 26px);
+}
 
-.card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
+.content { flex: 1; min-width: 0; }
+
+/* ---------------------------------------------------------------- 左栏组件 */
+
+.widget {
     border-radius: var(--card-radius);
-    box-shadow: var(--shadow);
-    margin-bottom: 20px;
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    margin-bottom: 18px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.widget-head {
+    background: var(--theme);
+    color: #fff;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 9px 15px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    letter-spacing: .3px;
+}
+
+.widget-body {
+    background: var(--card-bg);
+    padding: 14px 16px;
+    font-size: 13.5px;
+    line-height: 1.7;
+}
+
+.widget-body p { margin: 0 0 8px; }
+.widget-body p:last-child { margin-bottom: 0; }
+
+.widget-body a { color: var(--theme); text-decoration: none; }
+.widget-body a:hover { text-decoration: underline; }
+
+/* 左栏导航列表 */
+.side-nav {
+    background: var(--card-bg);
+    border-radius: var(--card-radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    margin-bottom: 18px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.side-nav a {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 11px 16px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border);
+    transition: background .2s, color .2s;
+}
+
+.side-nav a:last-child { border-bottom: none; }
+
+.side-nav a:hover {
+    background: rgba(var(--theme-rgb), .1);
+    color: var(--theme);
+}
+
+/* 当前页高亮。
+   #44「左栏的选中高亮一直不生效，但谁也不报错」
+   {
+     曾出现：首页/文章页的左栏里，当前那一项没有高亮
+     根因：构建脚本给导航和左栏都输出 class="active"，但 CSS 里
+           左栏这条规则写的是 .current。选择器不匹配 = 静默失效，
+           页面照常渲染，只是那一项没变色
+     修法：两个类名都认
+     教训：**选择器和生成代码之间的约定，是一份隐式的"两份副本"。**
+           改类名时两边都要动，而漏改的那一边不会报错。
+           本项目栽过十几次的就是这一类
+   } */
+.side-nav a.active,
+.side-nav a.current {
+    background: var(--theme);
+    color: #fff;
+}
+
+.side-nav a.active:hover,
+.side-nav a.current:hover {
+    background: var(--theme);
+    color: #fff;
+}
+
+/* 搜索按钮 */
+.search-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 11px;
+    margin-bottom: 18px;
+    background: var(--card-bg);
+    border: none;
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-lg);
+    color: var(--text-sub);
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: color .2s, background .2s;
+}
+
+.search-btn:hover {
+    color: var(--theme);
+    background: var(--card-bg-solid);
+}
+
+/* 站点概览：头像 + 签名 + 三个统计 */
+.overview-tabs {
+    display: flex;
+    background: var(--theme);
+    color: #fff;
+    font-size: 13.5px;
+}
+
+.overview-tabs span {
+    padding: 9px 0;
+    text-align: center;
+    flex: 1;
+    font-weight: 600;
+}
+
+.overview-tabs span.on { background: rgba(255, 255, 255, .18); }
+
+.overview-body {
+    background: var(--card-bg);
+    padding: 20px 16px 0;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.avatar {
+    width: 66px;
+    height: 66px;
+    border-radius: 50%;
+    margin: 0 auto 10px;
+    background: linear-gradient(135deg, var(--theme), #8a9bf0);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 700;
+    box-shadow: 0 4px 14px rgba(var(--theme-rgb), .4);
+}
+
+.overview-name {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.overview-bio {
+    font-size: 12.5px;
+    color: var(--text-sub);
+    margin-bottom: 16px;
+}
+
+.overview-stats {
+    display: flex;
+    border-top: 1px solid var(--border);
+}
+
+.overview-stats a {
+    flex: 1;
+    padding: 11px 4px;
+    text-decoration: none;
+    color: var(--text-sub);
+    font-size: 11.5px;
+    border-right: 1px solid var(--border);
+    transition: color .2s;
+}
+
+.overview-stats a:last-child { border-right: none; }
+.overview-stats a:hover { color: var(--theme); }
+
+.overview-stats .num {
+    display: block;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.3;
+}
+
+/* 左下角吉祥物（参考图里有个小人；这里用项目的字「炑」） */
+.mascot {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: rgba(var(--theme-rgb), .9);
+    color: #fff;
+    font-size: 26px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-lg);
+    cursor: default;
+    z-index: 90;
+    backdrop-filter: blur(6px);
+    transition: transform .3s;
+}
+
+.mascot:hover { transform: scale(1.08) rotate(-6deg); }
+
+/* ---------------------------------------------------------------- 文章卡片 */
+
+.post-card {
+    background: var(--card-bg);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-lg);
+    padding: 20px 24px 16px;
+    margin-bottom: 18px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     transition: box-shadow .3s ease, transform .3s ease;
 }
 
-.card.post {
+/* 列表页的卡片整块可点，悬停浮起 */
+a.post-card {
     display: block;
-    overflow: hidden;
     text-decoration: none;
     color: inherit;
 }
 
-.card.post:hover {
-    box-shadow: var(--shadow-lg);
+a.post-card:hover {
     transform: translateY(-3px);
+    box-shadow: 0 12px 32px rgba(50, 50, 93, .18);
 }
 
-.card-body { padding: 26px 30px; }
-
-.post-title {
-    font-size: 20px;
+.post-card .post-title {
+    margin: 0 0 10px;
+    font-size: 19px;
     font-weight: 600;
-    margin: 0 0 8px;
-    color: var(--text);
+    text-align: center;
+    color: var(--theme);
     line-height: 1.5;
 }
 
-.card.post:hover .post-title { color: var(--theme); }
+.post-card .post-title.plain { text-align: left; }
 
 .post-meta {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 4px 16px;
     font-size: 12.5px;
     color: var(--text-sub);
-    margin-bottom: 12px;
+    margin-bottom: 10px;
 }
 
-.post-meta .tag {
-    display: inline-block;
-    background: rgba(var(--theme-rgb), .1);
-    color: var(--theme);
-    padding: 1px 9px;
-    border-radius: 20px;
-    margin-right: 6px;
-    font-size: 11.5px;
-}
+.post-meta .m { display: inline-flex; align-items: center; gap: 4px; }
 
-.post-excerpt {
-    margin: 0;
+.post-tags {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
     color: var(--text-sub);
-    font-size: 14px;
 }
 
-/* ---------------------------------------------------------------- 文章页 */
-
-.article {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--card-radius);
-    box-shadow: var(--shadow);
-    padding: 42px 48px 48px;
-    margin-bottom: 22px;
+.tag {
+    background: rgba(var(--theme-rgb), .12);
+    color: var(--theme);
+    padding: 2px 11px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    text-decoration: none;
 }
+
+a.tag:hover { background: rgba(var(--theme-rgb), .22); }
+
+/* 分组标题：浮在壁纸上的白色文字读不清，所以给它一个半透明深色底。
+   {意图：这个标题不在卡片里，直接压在壁纸上；纯白字在浅色区域会看不见} */
+.section-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(0, 0, 0, .38);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 5px 15px;
+    border-radius: 20px;
+    margin: 24px 0 12px;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+}
+
+/* 文章标题下方的标签行不需要分隔线 —— 它在 .article-header 里，
+   而 header 本身已经有下边框了，两个一起出现会多一条线。 */
+.article-header .post-tags {
+    border-top: none;
+    padding-top: 4px;
+}
+
+/* ---------------------------------------------------------------- 文章页正文 */
 
 .article-header {
-    padding-bottom: 22px;
-    margin-bottom: 30px;
+    text-align: center;
+    padding-bottom: 16px;
+    margin-bottom: 22px;
     border-bottom: 1px solid var(--border);
 }
 
-.article-title {
-    font-size: 32px;
+.article-header .article-title {
+    font-size: 25px;
     font-weight: 700;
-    margin: 0 0 12px;
-    line-height: 1.35;
-}
-
-.article-body { font-size: 15.5px; }
-
-.article-body h2 {
-    font-size: 21px;
-    font-weight: 600;
-    margin: 38px 0 14px;
-    padding-left: 13px;
-    border-left: 4px solid var(--theme);
+    margin: 0 0 10px;
+    color: var(--theme);
     line-height: 1.4;
 }
 
-.article-body h3 {
-    font-size: 17px;
+.article-body { font-size: 15px; }
+
+.article-body h2 {
+    font-size: 19px;
     font-weight: 600;
-    margin: 28px 0 10px;
+    margin: 32px 0 12px;
+    padding-left: 12px;
+    border-left: 4px solid var(--theme);
+    line-height: 1.45;
 }
 
-.article-body p { margin: 0 0 16px; }
+.article-body h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 24px 0 9px;
+}
+
+.article-body p { margin: 0 0 15px; }
 
 .article-body a { color: var(--theme); text-decoration: none; }
 .article-body a:hover { text-decoration: underline; }
 
-.article-body ul, .article-body ol { padding-left: 24px; margin: 0 0 16px; }
-.article-body li { margin-bottom: 7px; }
+.article-body ul, .article-body ol { padding-left: 23px; margin: 0 0 15px; }
+.article-body li { margin-bottom: 6px; }
 
 .article-body code {
     font-family: "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
     font-size: .88em;
-    background: rgba(var(--theme-rgb), .09);
+    background: rgba(var(--theme-rgb), .1);
     color: var(--theme);
     padding: 2px 6px;
     border-radius: 5px;
 }
 
 .article-body pre {
-    background: #1e1e2d;
-    color: #e9ecef;
-    padding: 18px 20px;
+    background: #23233a;
+    color: #e6e8f0;
+    padding: 16px 18px;
     border-radius: 10px;
     overflow-x: auto;
-    font-size: 13.5px;
+    font-size: 13px;
     line-height: 1.65;
-    margin: 0 0 18px;
+    margin: 0 0 16px;
 }
 
 .article-body pre code {
@@ -381,10 +621,10 @@ html.darkmode .navbar { background: rgba(21, 21, 33, .72); }
 }
 
 .article-body blockquote {
-    margin: 0 0 18px;
-    padding: 12px 20px;
+    margin: 0 0 16px;
+    padding: 12px 18px;
     border-left: 4px solid var(--theme);
-    background: rgba(var(--theme-rgb), .06);
+    background: rgba(var(--theme-rgb), .08);
     border-radius: 0 8px 8px 0;
     color: var(--text-sub);
 }
@@ -394,18 +634,18 @@ html.darkmode .navbar { background: rgba(21, 21, 33, .72); }
 .article-body table {
     width: 100%;
     border-collapse: collapse;
-    margin: 0 0 18px;
-    font-size: 14px;
+    margin: 0 0 16px;
+    font-size: 13.5px;
 }
 
 .article-body th, .article-body td {
-    padding: 9px 13px;
+    padding: 9px 12px;
     border: 1px solid var(--border);
     text-align: left;
 }
 
 .article-body th {
-    background: rgba(var(--theme-rgb), .07);
+    background: rgba(var(--theme-rgb), .09);
     font-weight: 600;
 }
 
@@ -414,31 +654,51 @@ html.darkmode .navbar { background: rgba(21, 21, 33, .72); }
     height: auto;
     border-radius: 10px;
     display: block;
-    margin: 0 auto 18px;
+    margin: 0 auto 16px;
 }
 
 /* ---------------------------------------------------------------- 页脚 */
 
 .footer {
     text-align: center;
-    padding: 30px 22px 44px;
-    color: rgba(255, 255, 255, .92);
-    font-size: 13px;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, .4);
+    padding: 14px 18px 34px;
+    color: rgba(255, 255, 255, .95);
+    font-size: 12.5px;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .45);
 }
 
 .footer a { color: #fff; }
+.footer .sep { opacity: .55; margin: 0 7px; }
 
-.footer .sep { opacity: .5; margin: 0 8px; }
+/* ---------------------------------------------------------------- 响应式
 
-/* ---------------------------------------------------------------- 响应式 */
+   窄屏时左栏移到下方，内容优先。 */
 
-@media (max-width: 720px) {
-    .banner { padding-top: calc(var(--nav-h) + 46px); }
-    .banner-title { font-size: 30px; }
-    .article { padding: 28px 22px 32px; }
-    .article-title { font-size: 24px; }
-    .card-body { padding: 20px 22px; }
-    .navbar .nav-links a { padding: 6px 9px; font-size: 13px; }
-    .site-state { gap: 22px; }
+@media (max-width: 900px) {
+    .layout {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .sidebar {
+        width: 100%;
+        position: static;
+        /* 手机上把左栏放到文章后面，先看到内容 */
+        order: 2;
+        margin-top: 4px;
+    }
+
+    .content { order: 1; width: 100%; }
+
+    .mascot { display: none; }
+}
+
+@media (max-width: 560px) {
+    .navbar { padding: 0 10px; }
+    .navbar .brand .name { display: none; }
+    .navbar .nav-links a { padding: 6px 8px; font-size: 12.5px; }
+    .post-card { padding: 16px 16px 13px; }
+    .post-card .post-title { font-size: 17px; }
+    .article-header .article-title { font-size: 20px; }
+    .layout { padding-left: 12px; padding-right: 12px; }
 }
