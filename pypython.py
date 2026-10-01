@@ -651,9 +651,116 @@ class PyPyValue:
     取值要经过 .magnitude() → .decoded() → .raw 三层属性/方法访问。
     """
 
-    def __init__(self, raw):
+    def __init__(self, raw, taint=None):
         self.raw = raw
         self._encoding_cache_hint = None  # 从不用，但每次构造都要设置它
+        # --- 第四版追加：污染标记（taint）----------------------------------
+        #
+        # 为什么标记要存在**这里**而不是别处：Registry 存的是 encode() 出来的
+        # **字符串**，不是 PyPyValue 对象本身。所以任何挂在对象属性上的标记，
+        # 过一次赋值就没了（已实测：encode 返回 'N:5'，decode 回来的是新对象，
+        # 属性全丢）。要让"未知"跟着值走，标记只能进**编码**。见 encode/decode。
+        #
+        # taint 是一个字符串路径，比如 "x" 或 "x>y"，空串表示没被污染。
+        # 约束：**任何值都可以带污染标记**，不只是未知本身——
+        # `未知 + 1` 的结果是个数字，但它仍然是"被污染的数字"，
+        # 这个事实必须留住，否则传两步就追不出来了。
+        self.taint = taint if taint else ""
+
+    def tainted(self):
+        """这个值有没有被未知污染过。"""
+        return self.taint != ""
+
+    def extend_taint(self, *others):
+        """把别的值的污染路径并到自己的路径上，返回一个**新值**。
+
+        为什么返回新值而不是原地改：原地改会让共享同一个对象的两个变量
+        互相污染（`a「未知」` `b「a」` `c「b+1」` 会让 a 也被标成污染）。
+        本语言到处是"读出来再打包"，原地改迟早出事。
+
+        @ADR-0009：两种连接符，语义**不同**，不能混：
+
+            `>`  表示"流过去"——值从左边那个变量算出来，再存进了右边那个。
+                 `x>y` 读作"x 传给了 y"，是一条**路径**。
+
+            `+`  表示"两个独立来源汇合"——两个不同的未知一起参与了运算。
+                 `a+b` 读作"a 和 b 各自被污染过"，**不是**路径。
+
+        为什么必须区分：`c「a + b」`（a、b 都是独立的未知）如果写成
+        `a>b>c`，账本会撒谎说"a 引起了 b"，而事实上 a 和 b 没关系。
+        用户按这个信息去查，会查到一个根本不存在的因果链。
+
+        约束：重复的来源不重复记（`x + x` 的路径仍是 "x"）。
+        约束：**不拆开已有的 `>` 路径**——理由见 _merge_taint 的说明。
+        """
+        parts = []
+        for piece in (self.taint,) + others:
+            if piece and piece not in parts:
+                parts.append(piece)
+        if not parts:
+            return PyPyValue(self.raw, "")
+        if len(parts) == 1:
+            return PyPyValue(self.raw, parts[0])
+        return PyPyValue(self.raw, "+".join(parts))
+
+    def append_hop(self, name):
+        """在污染路径**末尾接一个传递环节**，返回新值。
+
+        @ADR-0009：这是唯一往路径上加 `>` 的地方，专门给赋值用：
+        `y「x + 1」` 里的值已经带着 "x"，存进 y 时接上 "y" → "x>y"，
+        读作"x 传给了 y"。
+
+        为什么不能用 extend_taint 接名字：那个方法的语义是"合并来源"，
+        用的是 `+`。用它接名字会把"传递"错说成"并列"
+        （`x>y` 变成 `x+y`，账本就会说 x 和 y 是两个独立来源，
+        而它们其实是同一条链上的两站）。
+
+        约束：如果路径里已经有并集（`a+b`），接法是把名字接到**每一支**的末尾
+        （`a+b` → `a>c+b>c`），因为 c 确实同时来自这两支。
+        这里由调用方判断该不该接，见 _do_assign。
+        """
+        if not self.taint:
+            return PyPyValue(self.raw, name)
+        branches = self.taint.split("+")
+        rebuilt = []
+        for branch in branches:
+            if name in branch.split(">"):
+                rebuilt.append(branch)
+            else:
+                rebuilt.append(branch + ">" + name)
+        return PyPyValue(self.raw, "+".join(rebuilt))
+
+    def taint_chain(self):
+        """把污染路径拆成一条链，给账本用。["x", "y"] 这种。
+
+        约束：只把 `>` 当路径分隔符。`+` 是并集，不是路径——
+        `a+b` 拆出来是 ["a", "b"]，读作"两个独立来源"，不是两步传递。
+        """
+        if not self.taint:
+            return []
+        return self.taint.replace("+", ">").split(">")
+
+    def taint_origins(self):
+        """只取"最初的来源"，不要中间环节。给提示语用。
+
+        怎么判断谁是源头：路径里的第一个就是。
+        `x>y>z` 的源头是 x；`a+b` 的源头是 a 和 b（都算）。
+        """
+        if not self.taint:
+            return []
+        out = []
+        for branch in self.taint.split("+"):
+            first = branch.split(">")[0]
+            if first and first not in out:
+                out.append(first)
+        return out
+
+    def taint_depth(self):
+        """污染传了几步。手写循环累加，不用 len()。{意图：增加复杂度}"""
+        steps = 0
+        for _ in self.taint_chain():
+            steps = steps + 1
+        return steps
 
     def magnitude(self) -> float:
         """把值取出为 float。数字要经过 float() 转换，即使它本来就是 float。"""
@@ -738,11 +845,16 @@ class PyPyValue:
         必然出错（#13），且补丁式修补会不断引入新边界问题。
         见 docs/decisions/0003-decode-长度前缀编码.md
 
+        @ADR-0009：污染标记（taint）作为**可选前缀**写在这里，见下面 _encode_body。
+        约束：**没污染的值编码完全不变**——这是向后兼容的关键，
+        也是"现有 65 项测试和所有旧输出格式不受影响"的原因。
+
         约束：数字以外的类型要各走各的前缀，且**必须**能原样解回来。
         S<长度>:<内容>   字符串
         L<个数>:<元素...> 列表
         D<对数>:<k><v><k><v>...  字典
         N:<数值>         数字
+        T<路径>|<上面任一> 被未知污染过的值（路径用 > 连接）
 
         #12「加了字符串/列表之后，decode 用 `^N:` 的正则去匹配 S: 开头的串，
              永远匹配失败，于是所有字符串都静默变成数字 0」
@@ -759,6 +871,23 @@ class PyPyValue:
         连犯两案**。修法：改用长度/个数前缀编码，元素边界由类型自己界定，
         彻底不依赖分隔符；同时把兜底从"返回 0"改成抛异常。
         **已验证**（_tmp_str_probe.py 的嵌套列表、含逗号字符串用例）。
+        """
+        body = self._encode_body()
+        if not self.taint:
+            # 没污染：原样返回，一个字符都不多。
+            return body
+        # 有污染：前面挂上 T<路径>|。
+        # 约束：路径里**不能出现 `|`**，否则 decode 会切错位置。
+        # 来源是变量名（标识符 + `>`），标识符不允许 `|`（见 RE_IDENT），
+        # 所以这里是安全的；万一不是，替换掉也不让编码坏掉。
+        safe = self.taint.replace("|", "_")
+        return "T" + safe + "|" + body
+
+    def _encode_body(self) -> str:
+        """真正干活的那部分编码。encode 负责在外面套 taint 前缀。
+
+        {意图：增加复杂度} —— 明明可以在 encode 里加一个参数搞定，
+        这里偏要拆成两个方法，于是每次编码都多一层调用、多一次字符串拼接。
         """
         raw = self.raw
         if isinstance(raw, str):
@@ -833,7 +962,28 @@ class PyPyValue:
         约束：本方法**必须**与 encode 严格对称，任何不对称都会静默产生错值。
         为杜绝 #12/#13 那种"匹配失败就返回 0"的静默兜底，
         解不出来一律抛 ValueError（解释器会把它变成带位置的「炑」）。
+
+        @ADR-0009：脏活在前几行——先剥掉可选的 T<路径>| 污染前缀，
+        把值本体交给 _decode_body 解，解完再把路径贴回**解出来的那个对象**上。
+        约束：污染标记必须贴到最外层对象，不能往元素里递归下发——
+        因为 `[x]` 这个列表整体是被污染的，而它的元素是什么类型是另一回事。
         """
+        # --- 污染前缀：T<路径>|<本体> -----------------------------------------
+        if blob.startswith("T"):
+            bar = blob.find("|")
+            if bar > 0:
+                path = blob[1:bar]
+                body = blob[bar + 1:]
+                # 约束：递归解本体。本体自己**不应该**再带 T 前缀
+                #（encode 只加一层），万一带了也不怕——递归会自己剥掉。
+                inner = PyPyValue.decode(body)
+                return PyPyValue(inner.raw, path)
+
+        return PyPyValue._decode_body(blob)
+
+    @staticmethod
+    def _decode_body(blob: str) -> "PyPyValue":
+        """真正干活的那部分解码（不含污染前缀处理）。见 encode/_encode_body。"""
         # --- 字符串：S<长度>:<内容> -------------------------------------------
         if blob.startswith("S"):
             colon = blob.find(":")
@@ -3673,12 +3823,20 @@ class SilentObservation:
     一个本该是三元组的东西，被做成了有 6 个字段的类。
     """
 
-    def __init__(self, unknown_name, line, column, propagated, propagated_into):
+    def __init__(self, unknown_name, line, column, propagated, propagated_into,
+                 chain=None, hint="", taint_raw=""):
         self.unknown_name = unknown_name      # 哪个变量未知（取不到名字时是 None）
         self.line = line                      # 第几行碰到的
         self.column = column
         self.propagated = propagated          # 未知有没有传染出去
         self.propagated_into = propagated_into  # 传染到哪些运算里（字符串列表）
+        # @ADR-0009：真溯源链。这是 taint 带出来的东西——
+        # 老版本靠爬语法树猜，只能猜"这一行"，猜不出"从哪来的"。
+        self.chain = chain if chain else []   # ["x", "y"] 这样（已拆平）
+        self.hint = hint                      # 给用户的"怎么改"建议
+        # 原始污染串，保留 `>`（流过去）和 `+`（独立来源）的区别。
+        # 光看拆平的 chain 分不出"a 传给 b"和"a、b 是两回事"。
+        self.taint_raw = taint_raw
 
     def describe(self) -> str:
         """把这次观测写成人能读的一行。"""
@@ -3690,6 +3848,28 @@ class SilentObservation:
             spread = "未传染（未知在此终止，没有被后面的运算碰到）"
         return ("变量 %s 在第 %d 行第 %d 列是未知；%s"
                 % (who, self.line, self.column, spread))
+
+    def chain_text(self):
+        """把溯源链画成人能读的样子。
+
+        @ADR-0009：两种关系要画得**不一样**，否则用户会误读因果：
+            `x>y>z`  →  "x → y → z"      一条传递路径
+            `a+b`    →  "a 和 b（两个独立来源）"   不是路径
+        混着来（`a+b>c`）也能画：先画并集，再画流向。
+        """
+        if not self.taint_raw:
+            return ""
+        branches = self.taint_raw.split("+")
+        flowed = []
+        for branch in branches:
+            flowed.append(" → ".join(branch.split(">")))
+        if len(flowed) == 1:
+            return flowed[0]
+        return " 与 ".join(flowed)
+
+    def chain_raw(self):
+        """原始的污染串（含 > 和 +），给需要精确判断的地方用。"""
+        return self.taint_raw
 
 
 class ObservationLedger:
@@ -3724,6 +3904,11 @@ class ObservationLedger:
             炑：静默观测已触发（第X行），状态未知，未执行任何分支。
         额外的那几行是我加的明细——用户要求"账本内容打出来亲眼确认"，
         光一行总括看不出三件事，所以每次观测展开成多行。
+
+        @ADR-0009 追加两行：
+          · 传播路径（`x → y → z`）——这是 taint 才做得到的事，
+            老版本靠爬语法树只能看"当前这一行"，追不出从哪来
+          · 提示——用户很容易以为程序坏了，告诉他怎么让它确定下来
         """
         out = []
         for obs in self.observations:
@@ -3731,11 +3916,16 @@ class ObservationLedger:
                        % obs.line)
             who = obs.unknown_name if obs.unknown_name else "(不是变量，是一个表达式)"
             out.append("      未知来源：%s" % who)
+            chain_text = obs.chain_text()
+            if chain_text:
+                out.append("      传播路径：%s" % chain_text)
             if obs.propagated:
                 out.append("      传染情况：已传染 → %s"
                            % "、".join(obs.propagated_into))
             else:
                 out.append("      传染情况：未传染（未知到此为止）")
+            if obs.hint:
+                out.append("      提示：%s" % obs.hint)
         return out
 
 
@@ -4281,6 +4471,41 @@ class Interpreter:
             self.book.mint("解释:隐式注册")
 
         value = self._evaluate(node.expr)          # 调用层 2
+
+        # @ADR-0009：污染标记的**生长点**。
+        #
+        # 这里分两种情况，两种都要处理，否则溯源链会断：
+        #
+        # 1) 值是**未被命名的未知**（`x「未知」`）→ 盖上这个变量的名字。
+        #    规则：一个未知被赋给 x，它从此就叫 x。
+        #
+        # 2) 值**已经带着污染标记**（`y「x + 1」`，结果带着 "x"）→
+        #    把当前变量名**接在路径后面**，变成 "x>y"。
+        #    这一步才是"传播路径"能长得出来的原因——
+        #    不接的话，不管传多少层，账本永远只显示最初的 "x"，
+        #    用户就问不出"中间经过了谁"。
+        #
+        # 约束：只有值**仍然带污染**时才接名字。
+        # `y「1 + 1」` 是干净的值，不该被标成污染——那是假报警。
+        existing = getattr(value, "taint", "")
+        if value.raw == MAYBE_UNKNOWN and not existing:
+            value = PyPyValue(MAYBE_UNKNOWN, node.name)
+            self.book.mint("解释:未知登记出生名")
+        elif existing:
+            # 把当前变量接在链尾。
+            #
+            # @ADR-0009：这里**总是**接（包括并集的情况）。
+            # 原因：`c「a + b」` 里 c 确实同时来自 a 和 b 两支，
+            # 接成 `a>c+b>c` 是准确的——每一支都流进了 c。
+            # 早先我为了"别把并集错说成路径"而跳过不接，
+            # 结果是三层以上的传递链全断了（z 拿到 "x>y" 后
+            # 合并时被拆成了并集）。接上才对。
+            if node.name not in value.taint_chain():
+                value = value.append_hop(node.name)
+                self.book.mint("解释:污染路径延长")
+            else:
+                self.book.mint("解释:污染路径已含此名")
+
         encoded = value.encode()                   # 转换：对象 → 字符串
         self.registry.write(node.name, encoded)    # 转换：字符串 → 列表
         self.registry.read(node.name)              # 写完回读，纯仪式
@@ -4392,26 +4617,31 @@ class Interpreter:
             self.book.mint("解释:静默观测")
 
             # 用户要求的第 3 件事：这个未知有没有传染到后面的运算。
-            # 判断办法：看这个条件表达式**内部**是不是还发生了别的运算。
-            # 如果条件就是个光秃秃的变量（`if x`），那未知到此为止；
-            # 如果条件里有 and/or/not/比较（`if x and y`），
-            # 那未知就被卷进了运算——那正是"传染"。
+            #
+            # @ADR-0009 起，这里**不再靠猜**。以前是看条件表达式的节点类型
+            # （裸变量算没传染、LogicNode 算已传染），那只能看"当前这一行"，
+            # 追不出这个未知是从哪一路传过来的。
+            # 现在标记（taint）跟着值走，链路是**查出来的事实**。
+            chain = raw.taint_chain()
+
             spread_into = []
-            kind = type(node.cond).__name__
-            if kind == "IdentNode":
-                spread_into = []          # 裸变量，没参与任何运算
-            else:
-                spread_into.append("条件表达式（%s）" % kind)
-                if self.chamber is not None:
-                    # 顺手把"未知参与逻辑运算"也记进泬账本
-                    self.book.mint("解释:未知参与条件运算")
+            if self._merge_taint(raw) and len(chain) >= 1:
+                # 链上有名字，说明这个未知确实是在某个运算里被带过来的
+                #（或者是从别的变量传染来的）。
+                if type(node.cond).__name__ != "IdentNode":
+                    spread_into.append("条件表达式（%s）" % type(node.cond).__name__)
 
             observation = SilentObservation(
-                unknown_name=(names[0] if names else None),
+                unknown_name=(names[0] if names else (chain[0] if chain else None)),
                 line=node.line,
                 column=node.column,
                 propagated=(len(spread_into) > 0),
                 propagated_into=spread_into,
+                chain=chain,
+                taint_raw=(raw.taint if hasattr(raw, "taint") else ""),
+                hint=("若要确定分支，先给 %s 赋一个确切的值；"
+                      "不确定就让它保持未知，语言不会替你猜。"
+                      % self._origin_text(raw, names)),
             )
             self.observations.record(observation)
 
@@ -4465,17 +4695,24 @@ class Interpreter:
             # --- 第四版：碰到未知就静默退出 ---
             if state == MAYBE_UNKNOWN:
                 names = find_unknown_names(node.cond, self)
+                chain = raw.taint_chain()
                 kind = type(node.cond).__name__
                 spread_into = []
                 if kind != "IdentNode":
                     spread_into.append("循环条件（%s）" % kind)
 
                 self.observations.record(SilentObservation(
-                    unknown_name=(names[0] if names else None),
+                    unknown_name=(names[0] if names
+                                  else (chain[0] if chain else None)),
                     line=node.line,
                     column=node.column,
                     propagated=(len(spread_into) > 0),
                     propagated_into=spread_into,
+                    chain=chain,
+                    taint_raw=(raw.taint if hasattr(raw, "taint") else ""),
+                    hint=("若要进循环，先给 %s 赋一个确切的值；"
+                          "条件未观测时循环体一次也不会执行。"
+                          % self._origin_text(raw, names)),
                 ))
                 self.emitted.append(
                     "炑：静默观测已触发（第%d行），状态未知，未执行任何分支。"
@@ -5041,6 +5278,53 @@ class Interpreter:
         self.book.mint("解释:未知传染登记")
         self.last_spread = "%s 里的 %s" % (entry, where)
 
+    def _origin_text(self, value, names):
+        """给提示语挑一个"该去给谁赋值"的名字。
+
+        优先用真正的**源头**（taint 的第一节），因为那才是问题的根：
+        `x` 未知导致 `z` 未知时，让用户去给 `z` 赋值没意义——
+        z 是算出来的，赋值也盖不住 x 这个源头。
+        """
+        origins = value.taint_origins() if hasattr(value, "taint_origins") else []
+        if origins:
+            return "、".join(origins)
+        if names:
+            return names[0]
+        return "它"
+
+    def _merge_taint(self, *values):
+        """把多个值的污染路径并成一条字符串。给 PyPyValue(raw, taint) 用。
+
+        @ADR-0009：这是"传染"最核心的一行——它决定未知会不会传下去。
+
+        约束（重要）：这里用 **`+`** 连接参与运算的**不同操作数**，
+        但**绝不把操作数内部已有的 `>` 路径拆开**。
+
+        为什么这条区分是必须的：
+            `z「y * 2」` 里 y 的污染是 "x>y"（一条路径）。
+            合并时如果把它拆成 "x"、"y" 再拼，就变成 "x+y"——
+            账本会谎称"x 和 y 是两个独立来源"，
+            而它们其实是同一条链上的两站。溯源链就断了。
+
+        所以规则是：**每个操作数的污染串整体保留**，只在它们之间加 `+`。
+        只有真的有两个不同操作数时才出现 `+`。
+        """
+        parts = []
+        for value in values:
+            if value is None:
+                continue
+            path = getattr(value, "taint", "")
+            if not path:
+                continue
+            # 整体保留这个操作数的污染串，不拆。
+            if path not in parts:
+                parts.append(path)
+        if not parts:
+            return ""
+        if len(parts) == 1:
+            return parts[0]
+        return "+".join(parts)
+
     def _eval_call2(self, node):
         """新语法调用：`名字(参数...)` 或 `对象.方法(参数...)`。
 
@@ -5293,17 +5577,23 @@ class Interpreter:
         if result_state == MAYBE_UNKNOWN:
             self.book.mint("解释:未知传染")
             self.note_unknown_spread(node, "逻辑运算")
-            return PyPyValue(MAYBE_UNKNOWN)
+            return PyPyValue(MAYBE_UNKNOWN, self._merge_taint(left, right))
 
         # --- 结果被某个确定值定死：返回那个操作数本身 ---
         # and 的结果确定为真 → 两个都是真 → 按 Python 惯例返回右边。
         # or  的结果确定为假 → 两个都是假 → 也返回右边。
+        #
+        # @ADR-0009：返回操作数本身时**不额外加标记**——
+        # 要返回的那个操作数自己带着它的传染历史，这就够了。
+        # 约束：`假 and 未知` 返回的是左边那个"确定的假"。
+        # 它**没有**被未知污染（结果完全由左边决定，跟未知无关），
+        # 所以不该被标成污染——这一点很重要，否则账本会虚报传染。
         if node.op == "and":
             if left_state == MAYBE_FALSE:
-                return left   # 左假压过一切
+                return left   # 左假压过一切。结果由左边定死，左边没被污染就干净。
             return right
         if right_state == MAYBE_TRUE:
-            return right      # 右真压过一切
+            return right      # 右真压过一切。
         return left
 
     def _eval_not(self, node):
@@ -5327,13 +5617,18 @@ class Interpreter:
         if flipped == MAYBE_UNKNOWN:
             self.book.mint("解释:未知取反仍是未知")
             self.note_unknown_spread(node, "not 取反")
-            return PyPyValue(MAYBE_UNKNOWN)
+            return PyPyValue(MAYBE_UNKNOWN, self._merge_taint(operand))
 
         verdict = self.chamber.interrogate(operand.truth_number())
         self.last_verdict = verdict
+        # @ADR-0009：确真/确假的结果也要带上污染标记。
+        # 为什么：`not 未知` 会走上面那条分支，但被污染过的**确定值**
+        # （比如 `y「x + 1」` 里 x 是未知、y 拿到的是污染过的数字）
+        # 取反后仍然是"被污染的数字"。这个事实不传下去，两步就追丢了。
+        taint = self._merge_taint(operand)
         if flipped == MAYBE_TRUE:
-            return PyPyValue(1)
-        return PyPyValue(0)
+            return PyPyValue(1, taint)
+        return PyPyValue(0, taint)
 
     def _eval_binop_node(self, node):
         """中缀二元运算求值（新语法的主路径）。
@@ -5361,9 +5656,15 @@ class Interpreter:
         """
         self.book.mint("解释:一元负号")
         value = self._evaluate(node.operand)
+        # @ADR-0009：未知没资格取负——`-未知` 还是未知，不能变成数字。
+        if value.raw == MAYBE_UNKNOWN:
+            self.book.mint("解释:未知取负仍是未知")
+            self.note_unknown_spread(node, "一元负号")
+            return value
         number = value.decoded()
         self.chamber.interrogate(number)
-        return self._wrap_result(-number, self.chamber.interrogate(-number))
+        return self._wrap_result(-number, self.chamber.interrogate(-number),
+                                 sources=[value])
 
     def _eval_number(self, node):
         """数字字面量求值。
@@ -5519,7 +5820,7 @@ class Interpreter:
         if left.raw == MAYBE_UNKNOWN or right.raw == MAYBE_UNKNOWN:
             self.book.mint("解释:未知参与算术")
             self.note_unknown_spread(node, "算术运算 " + operator)
-            return PyPyValue(MAYBE_UNKNOWN)
+            return PyPyValue(MAYBE_UNKNOWN, self._merge_taint(left, right))
 
         left_is_text = isinstance(left.raw, str)
         right_is_text = isinstance(right.raw, str)
@@ -5568,7 +5869,8 @@ class Interpreter:
 
         # 又经过一次密室（审问结果），然后丢进结果。
         final_verdict = self.chamber.interrogate(doubled_check)
-        return self._wrap_result(outcome, final_verdict)
+        # @ADR-0009：把两个操作数的污染标记传染给结果。
+        return self._wrap_result(outcome, final_verdict, sources=[left, right])
 
     def _concat_or_fail(self, node, operator, left, right):
         """字符串/列表的运算路径。
@@ -5614,7 +5916,11 @@ class Interpreter:
             if left.raw == MAYBE_UNKNOWN or right.raw == MAYBE_UNKNOWN:
                 self.book.mint("解释:未知参与比较")
                 self.note_unknown_spread(node, "比较运算 " + operator)
-                return PyPyValue(MAYBE_UNKNOWN)
+                # 约束：结果要带上污染来源，但**raw 仍是 MAYBE**。
+                # 带上来源是为了让账本能说出"这个未知影响了比较运算"，
+                # 而不是让比较结果变成一个普通的未知。
+                return PyPyValue(MAYBE_UNKNOWN,
+                                 self._merge_taint(left, right))
 
             if left_kind != right_kind:
                 # 类型不同：只有"不等于"为真。这是刻意选的规则——
@@ -5706,18 +6012,38 @@ class Interpreter:
         self.book.mint("解释:实体化")
         return value.decoded()
 
-    def _wrap_result(self, outcome, verdict):
+    def _wrap_result(self, outcome, verdict, sources=None):
         """把运算结果包装回 PyPyValue。
 
         {意图：增加复杂度} —— 结果要经过 str() → float() 再包，
         确保浮点数在每一轮运算里都丢掉一次精度。
+
+        @ADR-0009：sources 是"参与这次运算的操作数"。
+        如果其中任何一个被未知污染过，结果**也**被污染——
+        这就是"传染"的实现，而且是真传染：标记跟着值走，
+        不是事后爬语法树猜的。
+
+        约束：污染的来源路径要**并起来**，不能只留第一个。
+        `a + b`（a、b 都被不同未知污染）的结果应该同时带上两条来源。
         """
         self.book.mint("解释:结果包装")
         text = str(outcome)
         numeric = float(text)
         if numeric == int(numeric):
-            return PyPyValue(int(numeric))
-        return PyPyValue(numeric)
+            result = PyPyValue(int(numeric))
+        else:
+            result = PyPyValue(numeric)
+
+        # 传染：把操作数身上的污染标记抄到结果上。
+        if sources:
+            paths = []
+            for operand in sources:
+                if operand is not None and getattr(operand, "taint", ""):
+                    paths.append(operand.taint)
+            if paths:
+                self.book.mint("解释:污染传染")
+                result = result.extend_taint(*paths)
+        return result
 
 
 # =====================================================================================
@@ -6132,6 +6458,14 @@ def main():
         ("④ while 遇到未知（不跑循环体）",
          "x\u300c\u672a\u77e5\u300d\nwhile x\n    $(\"循环体\")\n"
          "$(\"循环已退出\")\n"),
+        # 第五例专门展示**真溯源**：未知从 x 一路传到 w，账本画得出链路。
+        # 老版本靠爬语法树猜，只能看"这一行"，追不出从哪来。
+        ("⑤ 溯源：未知从 x 传到 w（四层传递）",
+         "x\u300c\u672a\u77e5\u300d\ny\u300cx + 1\u300d\nz\u300cy * 2\u300d\n"
+         "w\u300cz - 3\u300d\nif w\n    $(1)\nelse\n    $(2)\n"),
+        ("⑥ 溯源：两个独立来源（不能画成一条因果链）",
+         "a\u300c\u672a\u77e5\u300d\nb\u300c\u672a\u77e5\u300d\n"
+         "c\u300ca + b\u300d\nif c\n    $(1)\nelse\n    $(2)\n"),
     ]:
         print("  " + label)
         demo_report = evaluate_source(demo_source)
@@ -6150,6 +6484,11 @@ def main():
     print("  小结：假能压过未知（假 and 未知 = 假），真能压过未知（真 or 未知 = 真），")
     print("        但不确定的一侧压不过去（真 and 未知 = 未知），未知参与算术/比较")
     print("        也仍是未知。控制流碰到未知时**两边都不执行**，只记一笔账。")
+    print()
+    print("  溯源：未知身上带着**污染标记**（taint），跟着值一路走。")
+    print("        所以账本能画出它从哪来、经过谁——不是事后猜的。")
+    print("        标记存在**编码**里（`T<路径>|N:5`），所以跨赋值、跨容器、")
+    print("        跨函数都活着；没污染的值编码完全不变，旧行为一点没动。")
 
     print()
     print(line)

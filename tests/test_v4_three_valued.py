@@ -252,6 +252,119 @@ try:
 except Exception:
     check("未知 不能被赋值覆盖", True)
 
+# =====================================================================
+print()
+print("=" * 74)
+print("11. 真溯源（taint）：未知怎么传过来的")
+print("=" * 74)
+# 这一组是第四版第二阶段的重点：老版本靠爬语法树猜"这一行有没有传染"，
+# 追不出"这个未知最初从哪来"。现在标记跟着值走，链路是查出来的事实。
+
+
+def ledger_of(src):
+    """跑一段源码，返回第一次静默观测的账本行。"""
+    rep = pypython.evaluate_source(src)
+    if not rep["observation_lines"]:
+        return ""
+    return "\n".join(rep["observation_lines"])
+
+
+def chain_of(src):
+    """只取"传播路径"那一行。"""
+    for line in ledger_of(src).split("\n"):
+        if "传播路径" in line:
+            return line.strip()
+    return "(无传播路径行)"
+
+
+# 逐层加深：路径必须一层层长出来
+check("两层：x → y",
+      "\u2192" in chain_of(
+          "x\u300c\u672a\u77e5\u300d\ny\u300cx + 1\u300d\n"
+          "if y\n    $(1)\nelse\n    $(2)\n")
+      and "x" in chain_of(
+          "x\u300c\u672a\u77e5\u300d\ny\u300cx + 1\u300d\n"
+          "if y\n    $(1)\nelse\n    $(2)\n"),
+      chain_of("x\u300c\u672a\u77e5\u300d\ny\u300cx + 1\u300d\n"
+               "if y\n    $(1)\nelse\n    $(2)\n"))
+
+FOUR_SRC = ("x\u300c\u672a\u77e5\u300d\ny\u300cx + 1\u300d\nz\u300cy * 2\u300d\n"
+            "w\u300cz - 3\u300d\nif w\n    $(1)\nelse\n    $(2)\n")
+four_chain = chain_of(FOUR_SRC)
+check("四层：路径含全部四站",
+      all(name in four_chain for name in ["x", "y", "z", "w"]),
+      four_chain)
+check("四层：x 在最前、w 在最后",
+      four_chain.find("x") < four_chain.find("w"), four_chain)
+
+# 关键性质：**多个独立来源不能画成一条链**
+# `c「a + b」`（a、b 各自是独立未知）如果画成 "a → b → c"，
+# 账本就在撒谎说 a 引起了 b。必须是两个分支。
+UNION_SRC = ("a\u300c\u672a\u77e5\u300d\nb\u300c\u672a\u77e5\u300d\n"
+             "c\u300ca + b\u300d\nif c\n    $(1)\nelse\n    $(2)\n")
+union_chain = chain_of(UNION_SRC)
+check("两个独立来源：不画成一条因果链",
+      "\u4e0e" in union_chain, union_chain)
+check("两个独立来源：a、b 都出现在路径里",
+      "a" in union_chain and "b" in union_chain, union_chain)
+
+# 提示要指向**源头**，不是中间环节——
+# 让用户去给 z 赋值没意义，z 是算出来的，赋值盖不住 x。
+hint_line = ""
+for line in ledger_of(FOUR_SRC).split("\n"):
+    if "\u63d0\u793a" in line:
+        hint_line = line.strip()
+check("提示指向源头 x（不是中间环节 w）",
+      "x" in hint_line and "w" not in hint_line.split("\u5148\u7ed9")[-1][:2],
+      hint_line)
+
+# 跨容器、跨函数也要追得到
+check("跨容器：追得到 x",
+      "x" in chain_of("x\u300c\u672a\u77e5\u300d\n\u76d2\u300c[x]\u300d\n"
+                      "y\u300c\u76d2[0] + 1\u300d\n"
+                      "if y\n    $(1)\nelse\n    $(2)\n"),
+      chain_of("x\u300c\u672a\u77e5\u300d\n\u76d2\u300c[x]\u300d\n"
+               "y\u300c\u76d2[0] + 1\u300d\nif y\n    $(1)\nelse\n    $(2)\n"))
+check("跨函数：追得到 x",
+      "x" in chain_of("def f(v)\n    return v + 1\n"
+                      "x\u300c\u672a\u77e5\u300d\ny\u300cf(x)\u300d\n"
+                      "if y\n    $(1)\nelse\n    $(2)\n"))
+
+# 反向：干净的值不能被标成污染
+check("确定值不产生污染（y「1+1」干净）",
+      chain_of("y\u300c1 + 1\u300d\nif y\n    $(1)\nelse\n    $(2)\n") == "(无传播路径行)",
+      chain_of("y\u300c1 + 1\u300d\nif y\n    $(1)\nelse\n    $(2)\n"))
+check("假压过未知：结果干净，不记污染",
+      chain_of("x\u300c\u672a\u77e5\u300d\ny\u300c0 and x\u300d\n"
+               "if y\n    $(1)\nelse\n    $(2)\n") == "(无传播路径行)",
+      chain_of("x\u300c\u672a\u77e5\u300d\ny\u300c0 and x\u300d\n"
+               "if y\n    $(1)\nelse\n    $(2)\n"))
+
+# 编码层：污染标记必须能安全往返（否则存进 Registry 就丢了）
+tv = pypython.PyPyValue(5, "x>y")
+back = pypython.PyPyValue.decode(tv.encode())
+check("taint 编码往返不丢", back.taint == "x>y", "实际: %r" % back.taint)
+check("taint 值本身没被改坏", back.raw == 5, "实际: %r" % back.raw)
+check("没污染的值编码不变（向后兼容）",
+      pypython.PyPyValue(5).encode() == "N:5",
+      pypython.PyPyValue(5).encode())
+check("taint 能穿过嵌套容器",
+      pypython.PyPyValue.decode(
+          pypython.PyPyValue([pypython.PyPyValue(7, "x")]).encode()
+      ).raw[0].taint == "x")
+
+# 提示：每一笔观测都要有。
+# 注意断言写法：hint 字段里存的是**建议正文**（"若要确定分支…"），
+# "提示：" 这个标签是 ObservationLedger.lines() 渲染时才加的。
+# 第一版我写成 `"提示" in obs.hint`，那是查错了地方——恒为假。
+# 教训同 ADR-0008：测之前先确认自己测的是不是那件事。
+check("每次静默观测都带提示",
+      all(obs.hint.strip() != ""
+          for obs in pypython.evaluate_source(FOUR_SRC)["observations"]))
+check("提示渲染到账本里（带「提示：」标签）",
+      "\u63d0\u793a\uff1a" in ledger_of(FOUR_SRC),
+      ledger_of(FOUR_SRC))
+
 print()
 print("=" * 74)
 print("通过 %d / 失败 %d" % (passed, failed))
