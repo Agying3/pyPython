@@ -1,5 +1,8 @@
 # pyPython IDE
 
+[![测试](https://github.com/Agying3/pyPython/actions/workflows/test.yml/badge.svg)](https://github.com/Agying3/pyPython/actions/workflows/test.yml)
+[![LICENSE WTFPL](https://img.shields.io/badge/license-WTFPL-brightgreen.svg)](LICENSE)
+
 > **想看完整文档?** `wiki/` 目录下有成套的说明:
 > 语言参考 / 三值逻辑 / 实现原理 / 性能 / 踩坑记录 / 已知限制。
 > 本 README 是速查表,`wiki/` 才是正片。
@@ -304,6 +307,7 @@ pypython_ide.py          运行时代理版 IDE
 interpreter.py           早期的正经计算器解释器(已搁置)
 examples/hello.pypy      可运行示例(含全部四版语法)
 tests/                   回归测试,`python tests/run_all.py` 一把跑完(12 个脚本)
+.github/workflows/       CI 配置(见下)
 docs/decisions/          架构决策记录(9 篇 ADR)
 wiki/                    完整文档(语言参考/三值逻辑/实现原理/性能/踩坑…)
 LICENSE                  WTFPL v2(整份就一条:你他妈想干嘛就干嘛)
@@ -312,6 +316,29 @@ LICENSE                  WTFPL v2(整份就一条:你他妈想干嘛就干嘛)
 **注意**:`pypython_idle/` 里的 `help.html` / `CREDITS.txt` / `README.txt` /
 `ChangeLog` 等文件**不能挪走** —— `help.py` 和 `help_about.py` 会在运行时读它们
 (菜单的 Help / About 靠这个)。看着像没用的上游遗留,其实在用。
+
+## CI
+
+每次 push / PR,GitHub Actions 会在**一台干净的 Linux 机器**上把 12 个
+脚本全跑一遍,横跨 Python **3.12 / 3.13 / 3.14**。上面那个绿色徽章就是它。
+
+**为什么这个项目特别需要 CI:** 本项目的风险几乎全是**静默失效** ——
+关键字表 8 份副本漏改一处、装饰性调用链接错一环,**都不报错**,
+只是安静地不干活。这种 bug 在开发机上永远测不出来,因为开发机
+"什么都装好了、目录刚好叫那个名字"。
+
+CI 的作用就是打破这类假设。它已经抓到过一次:12 个测试脚本原先都写死了
+`H:\pyPython`,CI 上一跑就 `ModuleNotFoundError`。
+
+配置在 `.github/workflows/test.yml`,分两段:
+
+| 段 | 内容 | 为什么要分开 |
+|---|---|---|
+| 解释器(9 个脚本) | 纯计算,不开窗口 | 失败早停 |
+| IDE(3 个脚本) | 真开 Tk 窗口 | Linux runner 没显示器,要套 `xvfb-run` |
+
+`test_keyword_sync.py` 虽然 import 了 IDE 的模块,但全程不建窗口,
+所以留在第一段 —— 这是实测确认的(用猴子补丁盯着 `Tk()` 构造函数)。
 
 ## 许可
 
