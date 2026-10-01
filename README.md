@@ -387,6 +387,32 @@ python push_wiki.py            # 手动推(现在就可用)
 存成仓库 Secret,**名字必须叫 `WIKI_TOKEN`**。没配的话那个 workflow
 会打印一句说明然后**正常退出,不报错** —— 没配可选功能不该让 CI 变红。
 
+## 文档站
+
+**<https://agying3.github.io/pyPython/>**
+
+一个像博客的静态站,四篇文章,长得比较像样。
+
+外观参考 [Argon](https://github.com/solstice23/argon-theme)(WordPress 主题),
+但**没有真的装它** —— Argon 是 PHP + MySQL,而 GitHub Pages 只能托管静态文件。
+更硬的理由是本项目 ADR-0001 禁止第三方依赖:解释器里连 `json`/`pickle`
+都自己写了编码,文档站装一整套 WordPress 说不过去。
+
+所以是**手写复刻**:一个 CSS 文件 + 五个 HTML + 两张壁纸,零依赖、零构建。
+
+源码在 **`gh-pages` 分支**(不在 master 上,免得污染代码)。
+
+```bash
+# 想看/改文档站
+git checkout gh-pages
+python tools/check_site.py     # 26 项自检:链接是否 404、主色对不对
+```
+
+> **注意**:`gh-pages` 是**孤儿分支**,和 master 没有共同祖先。
+> 切过去之后工作区是另一套文件,切回来才是代码。
+> 在里面改完**立刻提交** —— 孤儿分支在第一次提交之前切走会整个消失
+> (我因此丢过两次文件,见 ADR-0010 的 `#35`)。
+
 ## 许可
 
 **WTFPL v2** —— *DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE*。
