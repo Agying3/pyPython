@@ -363,6 +363,30 @@ CI 的作用就是打破这类假设。它已经抓到过一次:12 个测试脚�
 `test_keyword_sync.py` 虽然 import 了 IDE 的模块,但全程不建窗口,
 所以留在第一段 —— 这是实测确认的(用猴子补丁盯着 `Tk()` 构造函数)。
 
+## wiki 同步
+
+`wiki/` 是源,推上去的是 [GitHub wiki](https://github.com/Agying3/pyPython/wiki)。
+
+两条路:
+
+```
+python push_wiki.py            # 手动推(现在就可用)
+```
+
+改 `wiki/` 并 push 到 master 时,**CI 会自动推**(`.github/workflows/sync-wiki.yml`)。
+
+**但自动同步现在没启用**,因为它需要一个 PAT:
+
+> **实测结论**:默认的 `GITHUB_TOKEN` **推不了** wiki。
+> wiki 是一个**独立的 git 仓库**(`Agying3/pyPython.wiki.git`),
+> 而 `GITHUB_TOKEN` 只对当前仓库有写权限。实测结果是:
+> `remote: Permission to Agying3/pyPython.wiki.git denied to github-actions[bot].`(403)。
+> 它能 **clone**(11 页都读得到),但**推不上去**。
+
+想启用:生成一个 PAT(细粒度选 Contents 读写,或 classic 勾 `repo`),
+存成仓库 Secret,**名字必须叫 `WIKI_TOKEN`**。没配的话那个 workflow
+会打印一句说明然后**正常退出,不报错** —— 没配可选功能不该让 CI 变红。
+
 ## 许可
 
 **WTFPL v2** —— *DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE*。
