@@ -1,0 +1,445 @@
+/* ==========================================================================
+   pyPython 文档站 —— 样式
+   ==========================================================================
+
+   外观参考 Argon（github.com/solstice23/argon-theme，GPL-3.0），
+   那是一套 WordPress 主题。这里是**手写的静态复刻**，没有装那个主题。
+
+   #1「`gh-pages` 孤儿分支第一次提交之前切走，整个分支连同文件一起消失」
+   {
+     曾出现：本文件第一版写完、还没提交就 `git checkout master` 去写 ADR，
+             回来发现分支不存在了，CSS 和 ADR 全丢，只能重写
+     根因：`checkout --orphan` 建的分支**没有父提交**，在第一次 commit 之前
+           不算真实分支；切走时 Git 直接丢弃，工作区也一并清掉
+     修法：建完孤儿分支**立刻提交一次**，再做别的
+     教训：另一条相关坑方向相反 —— 建完分支后 master 的文件还在磁盘上，
+           那时 `git add -A` 会把整个解释器提交进 gh-pages。
+           两个坑连在一起：**先清干净，再立刻提交，然后才切走**
+   }
+
+   为什么不直接装 Argon：
+     1. Argon 是 PHP，跑在 WordPress + MySQL 上，而 GitHub Pages
+        **只能托管静态文件** —— 放不了 PHP，也放不了数据库。
+     2. 更硬的理由：ADR-0001 定死「纯 Python、无第三方库」。
+        文档站装一整套 WordPress，比解释器里引 matplotlib 还过分。
+   详见 docs/decisions/0010-文档站静态复刻.md
+
+   视觉参数来自原站（站主同意参考）。注意主色**不是** Argon 的默认值：
+     Argon 默认 --themecolor: #5e72e4（蓝紫），原站覆盖成了 #009688（青）。
+     HTML 的 <meta name="theme-color"> 里写的是 #5e72e4，那是**默认值**，
+     不是实际生效的值 —— 要读自定义 CSS 里的变量覆盖。
+   ========================================================================== */
+
+:root {
+    --theme: #009688;
+    --theme-rgb: 0, 150, 136;
+    --card-radius: 15px;
+    --bg-card: #ffffff;
+    --bg-body: #f4f6f9;
+    --text: #32325d;
+    --text-sub: #8898aa;
+    --border: rgba(0, 0, 0, .05);
+    --nav-h: 62px;
+    --shadow: 0 .125rem .25rem rgba(0, 0, 0, .075);
+    --shadow-lg: 0 15px 35px rgba(50, 50, 93, .1), 0 5px 15px rgba(0, 0, 0, .07);
+}
+
+html.darkmode {
+    --bg-card: #1e1e2d;
+    --bg-body: #151521;
+    --text: #e9ecef;
+    --text-sub: #8a8a9e;
+    --border: rgba(255, 255, 255, .07);
+    --shadow: 0 .125rem .25rem rgba(0, 0, 0, .3);
+    --shadow-lg: 0 15px 35px rgba(0, 0, 0, .4);
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+                 "Noto Serif SC", sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    color: var(--text);
+    background: var(--bg-body);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------- 背景层
+
+   两张壁纸叠在固定层上，只切 opacity 做交叉淡入。
+   {意图：深色模式要自动换成夜景图；用两层 opacity 切换而不是 JS 换
+          background-image，因为这样自带 .5s 过渡，且不需要 JS 参与选图}
+   这个做法是从原站学来的。 */
+
+body::before,
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    transition: opacity .5s ease;
+}
+
+body::before {
+    background-image: url("img/day.jpg");
+    opacity: .7;
+}
+
+body::after {
+    background-image: url("img/night.jpg");
+    opacity: 0;
+}
+
+html.darkmode body::before { opacity: 0; }
+html.darkmode body::after  { opacity: .7; }
+
+/* 深色模式压暗背景，否则夜里看太刺眼 */
+html.darkmode body::before,
+html.darkmode body::after { filter: brightness(.65); }
+
+/* 顶部渐变遮罩：让导航栏文字在任何壁纸上都读得清 */
+body > .top-shade {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 120px;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+        rgba(0, 0, 0, .28) 0%,
+        rgba(0, 0, 0, .16) 35%,
+        rgba(0, 0, 0, 0) 100%);
+}
+
+/* ---------------------------------------------------------------- 导航栏 */
+
+.navbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--nav-h);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    padding: 0 22px;
+    /* 毛玻璃 —— Argon 观感的核心 */
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    background: rgba(255, 255, 255, .72);
+    border-bottom: 1px solid var(--border);
+    transition: background .3s ease;
+}
+
+html.darkmode .navbar { background: rgba(21, 21, 33, .72); }
+
+.navbar .brand {
+    font-weight: 700;
+    font-size: 17px;
+    color: var(--theme);
+    text-decoration: none;
+    letter-spacing: .5px;
+}
+
+.navbar .nav-links {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.navbar .nav-links a {
+    color: var(--text);
+    text-decoration: none;
+    font-size: 14px;
+    padding: 7px 13px;
+    border-radius: 8px;
+    transition: background .2s, color .2s;
+}
+
+.navbar .nav-links a:hover {
+    background: rgba(var(--theme-rgb), .1);
+    color: var(--theme);
+}
+
+.theme-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+    cursor: pointer;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    font-size: 15px;
+    line-height: 1;
+    margin-left: 6px;
+    transition: background .2s, transform .3s;
+}
+
+.theme-toggle:hover {
+    background: rgba(var(--theme-rgb), .12);
+    transform: rotate(20deg);
+}
+
+/* ---------------------------------------------------------------- 页头 */
+
+.banner {
+    padding: calc(var(--nav-h) + 74px) 22px 54px;
+    text-align: center;
+    color: #fff;
+}
+
+.banner-title {
+    font-size: 42px;
+    font-weight: 700;
+    margin: 0 0 12px;
+    text-shadow: 0 5px 15px rgba(0, 0, 0, .3);
+    letter-spacing: 1px;
+}
+
+.banner-subtitle {
+    font-size: 15px;
+    opacity: .95;
+    margin: 0;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+}
+
+.site-state {
+    display: flex;
+    justify-content: center;
+    gap: 34px;
+    margin-top: 26px;
+}
+
+.site-state-item {
+    color: #fff;
+    text-align: center;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+
+.site-state-item-count {
+    display: block;
+    font-size: 21px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.site-state-item-name {
+    font-size: 12px;
+    opacity: .9;
+}
+
+/* ---------------------------------------------------------------- 容器 */
+
+.container {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 22px 70px;
+}
+
+/* ---------------------------------------------------------------- 卡片 */
+
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+    transition: box-shadow .3s ease, transform .3s ease;
+}
+
+.card.post {
+    display: block;
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+}
+
+.card.post:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-3px);
+}
+
+.card-body { padding: 26px 30px; }
+
+.post-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: var(--text);
+    line-height: 1.5;
+}
+
+.card.post:hover .post-title { color: var(--theme); }
+
+.post-meta {
+    font-size: 12.5px;
+    color: var(--text-sub);
+    margin-bottom: 12px;
+}
+
+.post-meta .tag {
+    display: inline-block;
+    background: rgba(var(--theme-rgb), .1);
+    color: var(--theme);
+    padding: 1px 9px;
+    border-radius: 20px;
+    margin-right: 6px;
+    font-size: 11.5px;
+}
+
+.post-excerpt {
+    margin: 0;
+    color: var(--text-sub);
+    font-size: 14px;
+}
+
+/* ---------------------------------------------------------------- 文章页 */
+
+.article {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow);
+    padding: 42px 48px 48px;
+    margin-bottom: 22px;
+}
+
+.article-header {
+    padding-bottom: 22px;
+    margin-bottom: 30px;
+    border-bottom: 1px solid var(--border);
+}
+
+.article-title {
+    font-size: 32px;
+    font-weight: 700;
+    margin: 0 0 12px;
+    line-height: 1.35;
+}
+
+.article-body { font-size: 15.5px; }
+
+.article-body h2 {
+    font-size: 21px;
+    font-weight: 600;
+    margin: 38px 0 14px;
+    padding-left: 13px;
+    border-left: 4px solid var(--theme);
+    line-height: 1.4;
+}
+
+.article-body h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 28px 0 10px;
+}
+
+.article-body p { margin: 0 0 16px; }
+
+.article-body a { color: var(--theme); text-decoration: none; }
+.article-body a:hover { text-decoration: underline; }
+
+.article-body ul, .article-body ol { padding-left: 24px; margin: 0 0 16px; }
+.article-body li { margin-bottom: 7px; }
+
+.article-body code {
+    font-family: "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+    font-size: .88em;
+    background: rgba(var(--theme-rgb), .09);
+    color: var(--theme);
+    padding: 2px 6px;
+    border-radius: 5px;
+}
+
+.article-body pre {
+    background: #1e1e2d;
+    color: #e9ecef;
+    padding: 18px 20px;
+    border-radius: 10px;
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.65;
+    margin: 0 0 18px;
+}
+
+.article-body pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+}
+
+.article-body blockquote {
+    margin: 0 0 18px;
+    padding: 12px 20px;
+    border-left: 4px solid var(--theme);
+    background: rgba(var(--theme-rgb), .06);
+    border-radius: 0 8px 8px 0;
+    color: var(--text-sub);
+}
+
+.article-body blockquote p:last-child { margin-bottom: 0; }
+
+.article-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 18px;
+    font-size: 14px;
+}
+
+.article-body th, .article-body td {
+    padding: 9px 13px;
+    border: 1px solid var(--border);
+    text-align: left;
+}
+
+.article-body th {
+    background: rgba(var(--theme-rgb), .07);
+    font-weight: 600;
+}
+
+.article-body img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 10px;
+    display: block;
+    margin: 0 auto 18px;
+}
+
+/* ---------------------------------------------------------------- 页脚 */
+
+.footer {
+    text-align: center;
+    padding: 30px 22px 44px;
+    color: rgba(255, 255, 255, .92);
+    font-size: 13px;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .4);
+}
+
+.footer a { color: #fff; }
+
+.footer .sep { opacity: .5; margin: 0 8px; }
+
+/* ---------------------------------------------------------------- 响应式 */
+
+@media (max-width: 720px) {
+    .banner { padding-top: calc(var(--nav-h) + 46px); }
+    .banner-title { font-size: 30px; }
+    .article { padding: 28px 22px 32px; }
+    .article-title { font-size: 24px; }
+    .card-body { padding: 20px 22px; }
+    .navbar .nav-links a { padding: 6px 9px; font-size: 13px; }
+    .site-state { gap: 22px; }
+}
