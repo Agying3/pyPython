@@ -126,6 +126,75 @@ for a, an in [(T, "T"), (F, "F"), (M, "M")]:
     check("NOT %s" % an, "$(not %s)\n" % a, "")
 
 print()
+print("=== 性能.md 的图与数字 ===")
+# 文档里引用的图必须真的存在，且能解析成 SVG。
+# "文档里挂了一张 404 的图" 比没有图更坏 —— 所以这里要红。
+import io as _io
+import xml.etree.ElementTree as _ET
+
+_svg_path = os.path.join(_ROOT, "docs", "perf.svg")
+_svg_rel = "https://raw.githubusercontent.com/Agying3/pyPython/master/docs/perf.svg"
+_wiki_perf = _io.open(os.path.join(_ROOT, "wiki", "性能.md"),
+                      encoding="utf-8").read()
+
+_ok = os.path.exists(_svg_path)
+(PASSED if _ok else FAILED).append("perf.svg 存在")
+print("  %s %-42s %s" % ("[OK]  " if _ok else "[FAIL]", "perf.svg 存在",
+                         "" if _ok else "文件不在 docs/perf.svg"))
+
+_ok2 = _svg_rel in _wiki_perf
+(PASSED if _ok2 else FAILED).append("性能.md 引用了 perf.svg")
+print("  %s %-42s %s" % ("[OK]  " if _ok2 else "[FAIL]",
+                         "性能.md 引用了 perf.svg",
+                         "" if _ok2 else "wiki 里找不到图的链接"))
+
+if os.path.exists(_svg_path):
+    try:
+        _root = _ET.parse(_svg_path).getroot()
+        _valid = _root.tag.endswith("svg")
+    except Exception as _e:
+        _valid = False
+        _root = None
+    (PASSED if _valid else FAILED).append("perf.svg 是合法 SVG")
+    print("  %s %-42s %s" % ("[OK]  " if _valid else "[FAIL]",
+                             "perf.svg 是合法 SVG",
+                             "" if _valid else "XML 解析失败"))
+
+    # 图里必须画了三个被测对象，且必须诚实标出"未达标"
+    if _valid:
+        _text = "".join(_root.itertext())
+        for _need, _desc in [("pyPython", "图里有 pyPython"),
+                             ("基线 A", "图里有基线 A"),
+                             ("基线 B", "图里有基线 B")]:
+            _h = _need in _text
+            (PASSED if _h else FAILED).append(_desc)
+            print("  %s %-42s %s" % ("[OK]  " if _h else "[FAIL]", _desc, ""))
+
+        # 关键：未达标必须写出来，不能只画好看的
+        _honest = "未达标" in _text
+        (PASSED if _honest else FAILED).append("图上标注了未达标")
+        print("  %s %-42s %s" % ("[OK]  " if _honest else "[FAIL]",
+                                 "图上标注了未达标（不能只报好看的）",
+                                 "" if _honest else "被 ADR-0001 约束：必须如实披露"))
+
+        # 必须声明这是本机本次，不能当基准引用
+        _caveat = "本机本次" in _text or "漂移" in _text
+        (PASSED if _caveat else FAILED).append("图上声明了数字会漂移")
+        print("  %s %-42s %s" % ("[OK]  " if _caveat else "[FAIL]",
+                                 "图上声明了数字会漂移", ""))
+
+# 出图脚本本身必须不引第三方库（ADR-0001：纯 Python、无第三方库）
+_chart = _io.open(os.path.join(_ROOT, "tools", "make_perf_chart.py"),
+                  encoding="utf-8").read()
+_banned = [m for m in ("matplotlib", "numpy", "pandas", "PIL", "cairosvg")
+           if ("import " + m) in _chart]
+_ok3 = not _banned
+(PASSED if _ok3 else FAILED).append("出图脚本不依赖第三方库")
+print("  %s %-42s %s" % ("[OK]  " if _ok3 else "[FAIL]",
+                         "出图脚本不依赖第三方库",
+                         "" if _ok3 else "引了 %s，违背 ADR-0001" % _banned))
+
+print()
 print("=" * 70)
 print("文档回归：通过 %d / 失败 %d" % (len(PASSED), len(FAILED)))
 if FAILED:

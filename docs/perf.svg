@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560">
+<rect width="900" height="560" fill="#ffffff"/>
+<text x="450" y="36" font-family="sans-serif" font-size="21" fill="#24292f" text-anchor="middle" font-weight="bold">pyPython 性能对比</text>
+<text x="450" y="60" font-family="sans-serif" font-size="12.5" fill="#57606a" text-anchor="middle" font-weight="normal">本项目的核心指标：越慢越好　·　对数轴　·　柱高为中位数，细线为 7 轮实测范围</text>
+<text x="450" y="79" font-family="sans-serif" font-size="11.5" fill="#8c959f" text-anchor="middle" font-weight="normal">测试机：本机本次　·　每轮 300 回合　·　数字会随 GC 与负载漂移，只可用于比较量级</text>
+<line x1="150" y1="442" x2="640" y2="442" stroke="#d0d7de" stroke-width="1"/>
+<text x="140" y="446" font-family="sans-serif" font-size="11.5" fill="#57606a" text-anchor="end" font-weight="normal">0.1 微秒</text>
+<line x1="150" y1="355.5" x2="640" y2="355.5" stroke="#d0d7de" stroke-width="1"/>
+<text x="140" y="359.5" font-family="sans-serif" font-size="11.5" fill="#57606a" text-anchor="end" font-weight="normal">1 微秒</text>
+<line x1="150" y1="269" x2="640" y2="269" stroke="#d0d7de" stroke-width="1"/>
+<text x="140" y="273" font-family="sans-serif" font-size="11.5" fill="#57606a" text-anchor="end" font-weight="normal">10 微秒</text>
+<line x1="150" y1="182.5" x2="640" y2="182.5" stroke="#d0d7de" stroke-width="1"/>
+<text x="140" y="186.5" font-family="sans-serif" font-size="11.5" fill="#57606a" text-anchor="end" font-weight="normal">100 微秒</text>
+<line x1="150" y1="96" x2="640" y2="96" stroke="#d0d7de" stroke-width="1"/>
+<text x="140" y="100" font-family="sans-serif" font-size="11.5" fill="#57606a" text-anchor="end" font-weight="normal">1000 微秒</text>
+<rect x="195.733" y="148.767" width="71.8667" height="293.233" fill="#8250df" rx="3"/>
+<line x1="231.667" y1="144.216" x2="231.667" y2="149.613" stroke="#24292f" stroke-width="2"/>
+<line x1="222.667" y1="149.613" x2="240.667" y2="149.613" stroke="#24292f" stroke-width="2"/>
+<line x1="222.667" y1="144.216" x2="240.667" y2="144.216" stroke="#24292f" stroke-width="2"/>
+<text x="231.667" y="126.767" font-family="sans-serif" font-size="15" fill="#8250df" text-anchor="middle" font-weight="bold">245.5</text>
+<text x="231.667" y="140.767" font-family="sans-serif" font-size="10.5" fill="#8c959f" text-anchor="middle" font-weight="normal">微秒/次</text>
+<text x="231.667" y="165.613" font-family="sans-serif" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">239.99 ~ 277.07</text>
+<text x="231.667" y="472" font-family="sans-serif" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="normal">pyPython 解释器</text>
+<text x="231.667" y="487" font-family="sans-serif" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="normal">（给源码字符串 → 跑出结果）</text>
+<text x="231.667" y="506" font-family="sans-serif" font-size="10.5" fill="#8c959f" text-anchor="middle" font-weight="normal">本项目的被测对象</text>
+<rect x="359.067" y="392.547" width="71.8667" height="49.4528" fill="#1f883d" rx="3"/>
+<line x1="395" y1="389.209" x2="395" y2="392.884" stroke="#24292f" stroke-width="2"/>
+<line x1="386" y1="392.884" x2="404" y2="392.884" stroke="#24292f" stroke-width="2"/>
+<line x1="386" y1="389.209" x2="404" y2="389.209" stroke="#24292f" stroke-width="2"/>
+<text x="395" y="370.547" font-family="sans-serif" font-size="15" fill="#1f883d" text-anchor="middle" font-weight="bold">0.4</text>
+<text x="395" y="384.547" font-family="sans-serif" font-size="10.5" fill="#8c959f" text-anchor="middle" font-weight="normal">微秒/次</text>
+<text x="395" y="408.884" font-family="sans-serif" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">0.37 ~ 0.41</text>
+<text x="395" y="472" font-family="sans-serif" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="normal">基线 A · CPython</text>
+<text x="395" y="487" font-family="sans-serif" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="normal">（timeit 裸执行，不含编译）</text>
+<text x="395" y="506" font-family="sans-serif" font-size="10.5" fill="#8c959f" text-anchor="middle" font-weight="normal">最有利于本项目的口径</text>
+<rect x="522.4" y="234.535" width="71.8667" height="207.465" fill="#bf8700" rx="3"/>
+<line x1="558.333" y1="220.536" x2="558.333" y2="242.802" stroke="#24292f" stroke-width="2"/>
+<line x1="549.333" y1="242.802" x2="567.333" y2="242.802" stroke="#24292f" stroke-width="2"/>
+<line x1="549.333" y1="220.536" x2="567.333" y2="220.536" stroke="#24292f" stroke-width="2"/>
+<text x="558.333" y="212.535" font-family="sans-serif" font-size="15" fill="#bf8700" text-anchor="middle" font-weight="bold">25.0</text>
+<text x="558.333" y="226.535" font-family="sans-serif" font-size="10.5" fill="#8c959f" text-anchor="middle" font-weight="normal">微秒/次</text>
+<text x="558.333" y="258.802" font-family="sans-serif" font-size="10.5" fill="#57606a" text-anchor="middle" font-weight="normal">20.08 ~ 36.33</text>
+<text x="558.333" y="472" font-family="sans-serif" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="normal">基线 B · CPython</text>
+<text x="558.333" y="487" font-family="sans-serif" font-size="11.5" fill="#24292f" text-anchor="middle" font-weight="normal">（exec 全流程，含编译）</text>
+<text x="558.333" y="506" font-family="sans-serif" font-size="10.5" fill="#8c959f" text-anchor="middle" font-weight="normal">与 pyPython 同口径</text>
+<rect x="652" y="104" width="228" height="196" fill="#f6f8fa" stroke="#d0d7de" rx="6"/>
+<text x="664" y="130" font-family="sans-serif" font-size="12" fill="#57606a" text-anchor="start" font-weight="bold">相对基线慢多少（中位数）</text>
+<text x="664" y="156" font-family="sans-serif" font-size="12" fill="#57606a" text-anchor="start" font-weight="normal">基线 A</text>
+<text x="664" y="176" font-family="sans-serif" font-size="18" fill="#1f883d" text-anchor="start" font-weight="bold">648 倍</text>
+<text x="664" y="194" font-family="sans-serif" font-size="11.5" fill="#8c959f" text-anchor="start" font-weight="normal">2.81 个数量级</text>
+<text x="664" y="222" font-family="sans-serif" font-size="12" fill="#57606a" text-anchor="start" font-weight="normal">基线 B</text>
+<text x="664" y="242" font-family="sans-serif" font-size="18" fill="#bf8700" text-anchor="start" font-weight="bold">10.0 倍</text>
+<text x="664" y="260" font-family="sans-serif" font-size="11.5" fill="#8c959f" text-anchor="start" font-weight="normal">1.00 个数量级</text>
+<text x="664" y="328" font-family="sans-serif" font-size="12" fill="#57606a" text-anchor="start" font-weight="bold">需求「慢 ≥2 个数量级」</text>
+<text x="664" y="352" font-family="sans-serif" font-size="13" fill="#1f883d" text-anchor="start" font-weight="normal">基线 A　达标 ✅</text>
+<text x="664" y="374" font-family="sans-serif" font-size="13" fill="#cf222e" text-anchor="start" font-weight="normal">基线 B　未达标 ❌</text>
+<text x="664" y="400" font-family="sans-serif" font-size="11" fill="#8c959f" text-anchor="start" font-weight="normal">（B 未达标是如实的，</text>
+<text x="664" y="416" font-family="sans-serif" font-size="11" fill="#8c959f" text-anchor="start" font-weight="normal">　理由见下方与 ADR-0001）</text>
+<text x="150" y="538" font-family="sans-serif" font-size="11" fill="#8c959f" text-anchor="start" font-weight="normal">基线 B 未达标是结构性的：exec 的编译是一次性 C 实现开销，而 pyPython 每次调用都重做纯 Python 词法+语法分析。</text>
+</svg>
