@@ -1,0 +1,56 @@
+name: 探测 wiki 权限
+
+# 一次性探针：搞清楚默认的 GITHUB_TOKEN 到底能不能推 wiki 仓库。
+#
+# 已知（查过文档与实测）：
+#   - wiki 是**独立**的 git 仓库（Agying3/pyPython.wiki.git）
+#   - 它不出现在 REST API 里（gh api repos/...wiki 返回 404）
+#   - 但 git clone 是通的
+#
+# 不确定的是：Actions 里的 GITHUB_TOKEN 对这个独立仓库有没有写权限。
+# GitHub 文档没把这点写清楚，所以这里**实测**，不猜。
+#
+# 注意：脚本故意不 fail，只把结果打出来 —— 探测用，不是验收用。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 用 GITHUB_TOKEN 试 clone wiki 仓库
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== 1. 用 GITHUB_TOKEN clone wiki 仓库 ==="
+          if git clone --depth 1 \
+              "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.wiki.git" \
+              /tmp/wiki 2>&1; then
+            echo "结果：clone 成功"
+            ls -la /tmp/wiki
+          else
+            echo "结果：clone 失败（GITHUB_TOKEN 推不了 wiki）"
+            exit 0
+          fi
+
+      - name: 试推送（干跑，用 --dry-run）
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -d /tmp/wiki ]; then
+            echo "上一步没 clone 成功，跳过"
+            exit 0
+          fi
+          cd /tmp/wiki
+          git config user.name "probe"
+          git config user.email "probe@example.com"
+          echo "probe $(date)" >> _PROBE.md
+          git add _PROBE.md
+          git commit -m "probe: 测试能否推送"
+          echo "=== 2. 试 push ==="
+          if git push origin HEAD 2>&1; then
+            echo "结果：push 成功 —— GITHUB_TOKEN 可以推 wiki"
+          else
+            echo "结果：push 失败 —— 必须用 PAT"
+          fi
