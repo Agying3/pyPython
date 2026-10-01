@@ -2,11 +2,15 @@
 
 import io
 import sys
+import os
 
-sys.path.insert(0, r"H:\pyPython")
+# 项目根：按本文件位置推算，不写死绝对路径。
+# （原先写死 H:\pyPython，一上 CI 项目路径不同就全崩。）
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 import pypython
 
-src = io.open(r"H:\pyPython\examples\hello.pypy", encoding="utf-8").read()
+src = io.open(os.path.join(_ROOT, "examples", "hello.pypy"), encoding="utf-8").read()
 try:
     rep = pypython.evaluate_source(src)
 except Exception as e:

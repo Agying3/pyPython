@@ -1,8 +1,12 @@
 """用真实编辑器复现 newline_and_indent_event，看新块关键字是否触发缩进。"""
 
 import sys
+import os
 
-sys.path.insert(0, r"H:\pyPython")
+# 项目根：按本文件位置推算，不写死绝对路径。
+# （原先写死 H:\pyPython，一上 CI 项目路径不同就全崩。）
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 from pypython_idle import startup
 
 startup.install_editor_factory()
