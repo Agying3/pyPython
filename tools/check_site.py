@@ -22,9 +22,30 @@ import re
 #         这类错误很容易漏，因为脚本"能跑"，只是找不到东西
 # }
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-pages = ["index.html"] + [
-    "posts/" + f for f in sorted(os.listdir(os.path.join(ROOT, "posts")))
-]
+
+# 页面列表**自动扫**，不写死。
+#
+# #39「自检漏掉了新加的页面，还显示全绿」
+# {
+#   曾出现：加了 wallpapers.html 之后跑自检，仍然 26/26 全过 ——
+#         因为列表里写死了 ["index.html"] + posts/*，新页面根本没被检查
+#   根因：页面清单是手写的，加页面时不会自动带上
+#   修法：改成扫根目录和 posts/ 下所有 .html
+#   教训：同本项目那条老教训 —— **"检查范围"本身也是一份需要同步的副本**。
+#         写死了范围，就等于给自己发了一张"看不见新东西"的通行证
+# }
+def _html_in(rel):
+    d = os.path.join(ROOT, rel) if rel else ROOT
+    if not os.path.isdir(d):
+        return []
+    return [
+        (rel + "/" if rel else "") + f
+        for f in sorted(os.listdir(d))
+        if f.endswith(".html")
+    ]
+
+
+pages = _html_in("") + _html_in("posts")
 
 ok, bad = [], []
 

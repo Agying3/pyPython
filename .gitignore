@@ -1,0 +1,41 @@
+# gh-pages 是孤儿分支，和 master 没有共同祖先。
+# 切到这边时，master 留下的未跟踪文件（比如 __pycache__）会**留在磁盘上**，
+# 这时 `git add -A` 会把它们一起提交进来 —— 站点分支里混进 .pyc 毫无意义。
+#
+# #40「git add -A 把 master 的 __pycache__ 提进了 gh-pages」
+# {
+#   曾出现：准备提交壁纸候选页面，git add -A 之后 status 里有 72 条，
+#          其中 62 条是 .pyc
+#   根因：孤儿分支切换**不会**清理未跟踪文件。master 上跑过测试留下的
+#         __pycache__、以及 pypython_idle/ 整个目录都还在磁盘上
+#   修法：这个 .gitignore + 提交前先看一眼 status
+#   教训：这是"孤儿分支两个方向的坑"的第三个变种 ——
+#         先是会把 master 文件误提交，然后是分支会整个消失，
+#         现在是**未跟踪的垃圾也会被一起提交**
+# }
+
+__pycache__/
+*.pyc
+*.pyo
+pypython_idle/
+pypython.py
+pypython_ide.py
+interpreter.py
+test_interpreter.py
+tests/
+docs/decisions/
+docs/extension-design.md
+docs/interpreter-notes.md
+wiki/
+examples/
+.github/
+push_wiki.py
+tools/make_perf_chart.py
+tools/README.md
+tools/check_v2.py
+
+# 但 tools/check_site.py 属于本站点，要保留
+!tools/check_site.py
+
+_commit_msg.txt
+_*.md
