@@ -9,7 +9,19 @@ import html
 import os
 import re
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# 站点根目录：本脚本在 tools/ 下，所以要往上一级。
+#
+# #38「脚本从根目录挪进 tools/ 之后，自检自己崩了」
+# {
+#   曾出现：脚本移进 tools/ 后运行，报 FileNotFoundError:
+#           'H:\pyPython\tools\posts' —— 它把 tools/ 当成了站点根
+#   根因：ROOT 是从 __file__ 直接推的，隐含假设"脚本就在站点根目录"。
+#         这个脚本最初确实写在根目录，后来才移进 tools/
+#   修法：往上退一级
+#   教训：同本项目那条老教训 —— **移动文件时，路径推导要跟着改**。
+#         这类错误很容易漏，因为脚本"能跑"，只是找不到东西
+# }
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 pages = ["index.html"] + [
     "posts/" + f for f in sorted(os.listdir(os.path.join(ROOT, "posts")))
 ]

@@ -17,12 +17,11 @@
            两个坑连在一起：**先清干净，再立刻提交，然后才切走**
    }
 
-   为什么不直接装 Argon：
-     1. Argon 是 PHP，跑在 WordPress + MySQL 上，而 GitHub Pages
-        **只能托管静态文件** —— 放不了 PHP，也放不了数据库。
-     2. 更硬的理由：ADR-0001 定死「纯 Python、无第三方库」。
-        文档站装一整套 WordPress，比解释器里引 matplotlib 还过分。
-   详见 docs/decisions/0010-文档站静态复刻.md
+   @ADR-0010：文档站用静态复刻而非博客系统；见 docs/decisions/0010-文档站静态复刻.md
+   {意图：Argon 是 PHP + WordPress，而 Pages 只能托管静态文件，物理上装不了；
+          更硬的理由是 ADR-0001 禁止第三方依赖 —— 解释器里连 json/pickle 都
+          自己写了编码，文档站装一整套 WordPress 说不过去。
+          取舍：加文章要手写 HTML、没有后台，换来零构建步骤、零依赖}
 
    视觉参数来自原站（站主同意参考）。注意主色**不是** Argon 的默认值：
      Argon 默认 --themecolor: #5e72e4（蓝紫），原站覆盖成了 #009688（青）。
