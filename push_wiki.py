@@ -40,7 +40,20 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WIKI_DIR = os.path.join(HERE, "wiki")
-REPO = "https://github.com/Agying3/pyPython.wiki.git"
+
+# wiki 仓库地址。默认用公开 URL（本地跑时走已配好的 git 凭据）。
+#
+# 允许用环境变量覆盖，是为了 CI：Actions 里的默认 GITHUB_TOKEN
+# **推不了 wiki 仓库**（实测 403，见 .github/workflows/sync-wiki.yml 顶部），
+# 必须换成一个 PAT。CI 通过 PYPY_WIKI_REPO 把带 token 的 URL 传进来，
+# 这样 token 不会写进仓库里的任何文件。
+#
+# 这样设计而不是在 CI 里重写一份推送逻辑：侧边栏 SIDEBAR 在下面有一份，
+# 再抄一份就变成"同一个东西多份副本"—— 本项目因这类问题栽过 8 次。
+REPO = os.environ.get(
+    "PYPY_WIKI_REPO",
+    "https://github.com/Agying3/pyPython.wiki.git",
+)
 
 # 侧边栏。GitHub wiki 认这个文件名，会把它渲染成左侧导航。
 SIDEBAR = """**pyPython**

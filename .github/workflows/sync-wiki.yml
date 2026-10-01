@@ -1,0 +1,91 @@
+name: 同步 wiki
+
+# 把仓库里的 wiki/ 推到 GitHub wiki。
+#
+# ## 为什么需要 PAT，默认 GITHUB_TOKEN 不行
+#
+# 这是**实测**出来的（探针 run 36820803383），不是猜的：
+#
+#   用 GITHUB_TOKEN clone wiki 仓库   -> 成功，11 页都列出来了
+#   用 GITHUB_TOKEN push              -> remote: Permission to
+#       Agying3/pyPython.wiki.git denied to github-actions[bot].
+#       fatal: ... error: 403
+#
+# 原因：wiki 是一个**独立的 git 仓库**（Agying3/pyPython.wiki.git），
+# 而 GITHUB_TOKEN 只对**当前**仓库有写权限。它也读不到 wiki 的 REST API
+# （gh api repos/.../pyPython.wiki 返回 404），但 git clone 是通的。
+#
+# ## 怎么配
+#
+#   1. 生成一个 PAT
+#        - 细粒度：Repository access 选 Agying3/pyPython，
+#          Permissions -> Repository permissions -> Contents: Read and write
+#        - 或 classic：勾 repo
+#   2. 存成仓库 Secret，名字叫 WIKI_TOKEN
+#   3. 之后改 wiki/ 并 push 到 master，这个 workflow 会自动同步
+#
+# ## 没配 PAT 会怎样
+#
+# 不会红。它会打印一段说明然后**成功退出** ——
+# 因为"没配可选功能"和"同步失败"是两回事，
+# 让 CI 因为没配 Secret 而变红，会训练人忽略红色。
+#
+# 手动跑一次也行（wiki/ 没变也照样推，用来对齐）。
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "wiki/**"
+      - ".github/workflows/sync-wiki.yml"
+      - "push_wiki.py"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 检查是否配了 WIKI_TOKEN
+        id: check
+        env:
+          T: ${{ secrets.WIKI_TOKEN }}
+        run: |
+          if [ -z "$T" ]; then
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 没配 token，跳过（不报错）
+        if: steps.check.outputs.has_token != 'true'
+        run: |
+          echo "::notice title=wiki 未同步::没有配 WIKI_TOKEN，跳过。"
+          echo ""
+          echo "想启用自动同步，按 .github/workflows/sync-wiki.yml 顶部的说明"
+          echo "生成一个 PAT 并存成仓库 Secret（名字 WIKI_TOKEN）。"
+          echo ""
+          echo "不配也没关系：wiki 现在与本地是一致的，"
+          echo "改了 wiki/ 之后手动跑 python push_wiki.py 即可。"
+
+      - name: 推送 wiki（用 PAT）
+        if: steps.check.outputs.has_token == 'true'
+        env:
+          # push_wiki.py 认这个变量，用它替换掉公开的 wiki URL。
+          # token 只存在于这一步的环境里，不落盘、不进仓库。
+          PYPY_WIKI_REPO: https://x-access-token:${{ secrets.WIKI_TOKEN }}@github.com/Agying3/pyPython.wiki.git
+          GIT_AUTHOR_NAME: ${{ github.actor }}
+          GIT_AUTHOR_EMAIL: ${{ github.actor }}@users.noreply.github.com
+          GIT_COMMITTER_NAME: ${{ github.actor }}
+          GIT_COMMITTER_EMAIL: ${{ github.actor }}@users.noreply.github.com
+        run: |
+          # 直接复用仓库里已有的 push_wiki.py，**不另写一份**。
+          # 侧边栏 _Sidebar.md 的内容在 push_wiki.py 里已经有一份，
+          # 这里再抄一份就变成"同一个东西多份副本"的坑 ——
+          # 本项目因这类问题栽过 8 次，而且全是静默失效。
+          python push_wiki.py

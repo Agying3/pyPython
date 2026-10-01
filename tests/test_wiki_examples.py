@@ -194,6 +194,27 @@ print("  %s %-42s %s" % ("[OK]  " if _ok3 else "[FAIL]",
                          "出图脚本不依赖第三方库",
                          "" if _ok3 else "引了 %s，违背 ADR-0001" % _banned))
 
+# push_wiki.py 必须支持用环境变量覆盖仓库地址 —— CI 靠这个塞 PAT，
+# 见 .github/workflows/sync-wiki.yml。这里锁住这个契约。
+import os as _os2
+_wp_src = _io.open(_os2.path.join(_ROOT, "push_wiki.py"),
+                   encoding="utf-8").read()
+_ok4 = "PYPY_WIKI_REPO" in _wp_src
+(PASSED if _ok4 else FAILED).append("push_wiki.py 支持 env 覆盖仓库地址")
+print("  %s %-42s %s" % ("[OK]  " if _ok4 else "[FAIL]",
+                         "push_wiki.py 支持 env 覆盖仓库地址",
+                         "" if _ok4 else "CI 要靠它塞 token，不能写死"))
+
+# 侧边栏不能有两份。push_wiki.py 里有一份 SIDEBAR；
+# 如果 CI workflow 里又抄一份 heredoc，就变成双副本陷阱。
+_wf = _io.open(_os2.path.join(_ROOT, ".github", "workflows",
+                              "sync-wiki.yml"), encoding="utf-8").read()
+_ok5 = "_Sidebar.md" in _wf and "首页](Home)" not in _wf
+(PASSED if _ok5 else FAILED).append("侧边栏没有第二份副本")
+print("  %s %-42s %s" % ("[OK]  " if _ok5 else "[FAIL]",
+                         "侧边栏没有第二份副本",
+                         "" if _ok5 else "workflow 里抄了 SIDEBAR，会漏改"))
+
 print()
 print("=" * 70)
 print("文档回归：通过 %d / 失败 %d" % (len(PASSED), len(FAILED)))
