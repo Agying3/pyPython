@@ -306,11 +306,29 @@ examples/hello.pypy      可运行示例(含全部四版语法)
 tests/                   回归测试,`python tests/run_all.py` 一把跑完(12 个脚本)
 docs/decisions/          架构决策记录(9 篇 ADR)
 wiki/                    完整文档(语言参考/三值逻辑/实现原理/性能/踩坑…)
+LICENSE                  WTFPL v2(整份就一条:你他妈想干嘛就干嘛)
 ```
 
 **注意**:`pypython_idle/` 里的 `help.html` / `CREDITS.txt` / `README.txt` /
 `ChangeLog` 等文件**不能挪走** —— `help.py` 和 `help_about.py` 会在运行时读它们
 (菜单的 Help / About 靠这个)。看着像没用的上游遗留,其实在用。
+
+## 许可
+
+**WTFPL v2** —— *DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE*。
+
+```
+0. You just DO WHAT THE FUCK YOU WANT TO.
+```
+
+整份协议就这一条。不要求署名、不要求开源、不要求保留版权声明,商用闭源都随意。
+见 `LICENSE`。
+
+选它的理由和这个项目一致:**别的协议都在替用户做判断,这个不做** ——
+跟三值逻辑碰到 `未知` 时不替用户选分支,是同一条原则。
+
+(提醒:WTFPL 未获 OSI 认证,GitHub 识别得出 `WTFPL` 这个 SPDX 标识,
+但严格场合可能不被接受。要正规场合用,换 `MIT` 即可。)
 
 ## 决策记录
 
