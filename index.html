@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pyPython</title>
+<meta name="description" content="一门寄生于 CPython 的解释型语言。目标是比 CPython 慢两个数量级。">
+<link rel="stylesheet" href="assets/style.css">
+<script>
+/* 深色模式：首次跟随系统偏好，之后记住用户的选择。
+   必须在 <head> 里同步执行，否则会闪一下白底再变暗。 */
+(function () {
+    var saved = null;
+    try { saved = localStorage.getItem('pypy-theme'); } catch (e) {}
+    var preferDark = window.matchMedia &&
+                     window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && preferDark)) {
+        document.documentElement.classList.add('darkmode');
+    }
+})();
+</script>
+</head>
+<body>
+
+<div class="top-shade"></div>
+
+<nav class="navbar">
+    <a class="brand" href="index.html">pyPython</a>
+    <div class="nav-links">
+        <a href="index.html">首页</a>
+        <a href="https://github.com/Agying3/pyPython/wiki">Wiki</a>
+        <a href="https://github.com/Agying3/pyPython/tree/master/docs/decisions">ADR</a>
+        <a href="https://github.com/Agying3/pyPython">仓库</a>
+        <button class="theme-toggle" id="themeBtn" title="切换深浅色" aria-label="切换深浅色">◐</button>
+    </div>
+</nav>
+
+<header class="banner">
+    <h1 class="banner-title">pyPython</h1>
+    <p class="banner-subtitle">
+        一门寄生于 CPython 的解释型语言<br>
+        目标不是更快，是<strong>慢两个数量级</strong>
+    </p>
+    <div class="site-state">
+        <div class="site-state-item">
+            <span class="site-state-item-count">4</span>
+            <span class="site-state-item-name">文章</span>
+        </div>
+        <div class="site-state-item">
+            <span class="site-state-item-count">3</span>
+            <span class="site-state-item-name">分类</span>
+        </div>
+        <div class="site-state-item">
+            <span class="site-state-item-count">10</span>
+            <span class="site-state-item-name">ADR</span>
+        </div>
+    </div>
+</header>
+
+<main class="container">
+
+    <a class="card post" href="posts/why-slow.html">
+        <div class="card-body">
+            <h2 class="post-title">这门语言为什么这么慢</h2>
+            <div class="post-meta">
+                <span class="tag">性能</span>
+                2026-10-01
+            </div>
+            <p class="post-excerpt">
+                实测比 CPython 慢 686 倍。这个数字是刻意做出来的，
+                而且我把「没达标」的那条基线也画进了图里。
+            </p>
+        </div>
+    </a>
+
+    <a class="card post" href="posts/three-valued.html">
+        <div class="card-body">
+            <h2 class="post-title">我给了布尔值第三个状态</h2>
+            <div class="post-meta">
+                <span class="tag">三值逻辑</span>
+                2026-10-01
+            </div>
+            <p class="post-excerpt">
+                <code>TRUE</code>、<code>FALSE</code>，还有 <code>未知</code>。
+                第三态不是「介于真假之间」，是<strong>信息缺失</strong>——
+                消息发出去了，还没回。
+            </p>
+        </div>
+    </a>
+
+    <a class="card post" href="posts/blank-line.html">
+        <div class="card-body">
+            <h2 class="post-title">一个空行引发的血案</h2>
+            <div class="post-meta">
+                <span class="tag">踩坑</span>
+                2026-10-01
+            </div>
+            <p class="post-excerpt">
+                赋值成功、不报错、没效果。这类 bug 最难查，
+                因为你没法靠「跑起来没报错」判断对错。
+            </p>
+        </div>
+    </a>
+
+    <a class="card post" href="posts/no-matplotlib.html">
+        <div class="card-body">
+            <h2 class="post-title">为什么我坚持不用 matplotlib</h2>
+            <div class="post-meta">
+                <span class="tag">工程</span>
+                2026-10-01
+            </div>
+            <p class="post-excerpt">
+                要画一张性能对比图。装个 matplotlib 只要一行命令，
+                我选择了手写 300 行 SVG。
+            </p>
+        </div>
+    </a>
+
+</main>
+
+<footer class="footer">
+    © 2026 pyPython
+    <span class="sep">·</span>
+    本项目不追求正确，只追求过程
+    <span class="sep">·</span>
+    <a href="https://github.com/Agying3/pyPython/blob/master/LICENSE">WTFPL</a>
+</footer>
+
+<script>
+document.getElementById('themeBtn').addEventListener('click', function () {
+    var root = document.documentElement;
+    root.classList.toggle('darkmode');
+    try {
+        localStorage.setItem('pypy-theme',
+            root.classList.contains('darkmode') ? 'dark' : 'light');
+    } catch (e) {}
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我给了布尔值第三个状态 · pyPython</title>
+<meta name="description" content="TRUE、FALSE，还有未知。第三态不是介于真假之间，是信息缺失。">
+<link rel="stylesheet" href="../assets/style.css">
+<script>
+(function () {
+    var saved = null;
+    try { saved = localStorage.getItem('pypy-theme'); } catch (e) {}
+    var preferDark = window.matchMedia &&
+                     window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && preferDark)) {
+        document.documentElement.classList.add('darkmode');
+    }
+})();
+</script>
+</head>
+<body>
+
+<div class="top-shade"></div>
+
+<nav class="navbar">
+    <a class="brand" href="../index.html">pyPython</a>
+    <div class="nav-links">
+        <a href="../index.html">首页</a>
+        <a href="https://github.com/Agying3/pyPython/wiki">Wiki</a>
+        <a href="https://github.com/Agying3/pyPython/tree/master/docs/decisions">ADR</a>
+        <a href="https://github.com/Agying3/pyPython">仓库</a>
+        <button class="theme-toggle" id="themeBtn" title="切换深浅色" aria-label="切换深浅色">◐</button>
+    </div>
+</nav>
+
+<main class="container" style="padding-top: calc(var(--nav-h) + 40px);">
+
+<article class="article">
+    <header class="article-header">
+        <h1 class="article-title">我给了布尔值第三个状态</h1>
+        <div class="post-meta">
+            <span class="tag">三值逻辑</span>
+            2026-10-01
+            <span class="sep">·</span>
+            阅读约 6 分钟
+        </div>
+    </header>
+
+    <div class="article-body">
+
+        <p>
+            布尔值有两个值，这是常识。我加了第三个：
+            <code>未知</code>。
+        </p>
+
+        <table>
+            <thead>
+                <tr><th>值</th><th>含义</th><th>不是什么</th></tr>
+            </thead>
+            <tbody>
+                <tr><td><code>TRUE</code></td><td>已观测，为真</td><td></td></tr>
+                <tr><td><code>FALSE</code></td><td>已观测，为假</td><td></td></tr>
+                <tr><td><code>MAYBE</code></td><td><strong>尚未观测</strong></td>
+                    <td>不是 <code>None</code>，不是错误，<strong>不是随机</strong></td></tr>
+            </tbody>
+        </table>
+
+        <h2>第三态不是「一半真一半假」</h2>
+
+        <p>
+            这是最容易理解错的地方。很多人一听三值逻辑，想到的是
+            「0.5」「概率」「介于真假之间」。
+        </p>
+
+        <p>
+            <strong>不是。</strong> <code>未知</code> 的含义是
+            <strong>信息缺失</strong>——不是「介于」，是「还不知道」。
+        </p>
+
+        <p>
+            我给人解释时用一个类比（这个类比没有进代码注释）：
+            约人出来。
+        </p>
+
+        <ul>
+            <li><code>TRUE</code> 是约到了</li>
+            <li><code>FALSE</code> 是约不到</li>
+            <li><code>未知</code> 是<strong>消息发出去了，还没回</strong></li>
+        </ul>
+
+        <p>
+            没回不等于失败，也不等于成功。它就是<strong>没回</strong>。
+        </p>
+
+        <h2>为什么不用随机数</h2>
+
+        <p>
+            有人会想：遇到未知就随机选一边，不就能继续跑了？
+        </p>
+
+        <p>
+            这里有一条硬规定：<strong>代码里绝不允许出现
+            <code>random</code></strong>。整个 6500 行的解释器里，
+            <code>random</code> 这个词只出现在一句禁止使用它的注释里。
+        </p>
+
+        <p>
+            理由不是「随机不好」，而是：
+        </p>
+
+        <blockquote>
+            <p>
+                底层是二进制机器，任何随机都是<strong>伪随机</strong>。
+                用伪随机冒充未知，等于把「我不知道」偷偷换成
+                「我掷了个骰子」。
+            </p>
+        </blockquote>
+
+        <p>
+            这两句话听起来像，实际差得很远。前者诚实，后者假装自己有信息。
+        </p>
+
+        <h2>所以碰到未知，什么都不做</h2>
+
+        <p>
+            <code>if</code> 的条件是 <code>未知</code> 时，
+            <strong>then 和 else 都不执行</strong>。
+        </p>
+
+        <pre><code>x「未知」
+if x
+    $("走了真分支")
+否则
+    $("走了假分支")</code></pre>
+
+        <p>
+            这段代码<strong>两个分支都不会打印</strong>。不是崩溃，不是跳过，
+            是「不替你选」。
+        </p>
+
+        <p>
+            这叫<strong>静默观测</strong>。但「静默」不等于什么都不说——
+            那样你会看到一个不动的程序，分不清是遇到未知还是程序坏了。
+            所以它记一笔账：
+        </p>
+
+        <pre><code>炑：静默观测已触发（第2行），状态未知，未执行任何分支。
+      未知来源：x
+      传播路径：x → y → z → w
+      传染情况：已传染 → 条件表达式（LogicNode）
+      提示：若要确定分支，先给 x 赋一个确切的值；
+            不确定就让它保持未知，语言不会替你猜。</code></pre>
+
+        <h2>未知会传染</h2>
+
+        <p>
+            未知参与任何运算，结果还是未知：
+        </p>
+
+        <table>
+            <thead><tr><th>运算</th><th>结果</th></tr></thead>
+            <tbody>
+                <tr><td><code>未知 + 1</code></td><td>未知</td></tr>
+                <tr><td><code>未知 &gt; 1</code></td><td>未知</td></tr>
+                <tr><td><code>not 未知</code></td><td>未知</td></tr>
+                <tr><td><code>[未知][0]</code></td><td>未知</td></tr>
+                <tr><td><code>f(未知)</code></td><td>未知</td></tr>
+            </tbody>
+        </table>
+
+        <p>
+            <code>未知 + 1</code> 是几？猜 0 就是 1，猜 1 就是 2。
+            <strong>哪个都不是用户能确认的答案。</strong>
+        </p>
+
+        <h2>最难的部分：它从哪来</h2>
+
+        <p>
+            账本要回答「这个未知是怎么传过来的」。第一版实现是
+            <strong>事后爬一遍语法树去推断</strong>——看条件表达式是什么节点类型，
+            猜有没有发生运算。
+        </p>
+
+        <p>
+            它能应付「这一行」，但<strong>追不出跨行的传递</strong>：
+        </p>
+
+        <pre><code>x「未知」
+y「x + 1」      ← 未知传给了 y
+z「y * 2」      ← 又传给了 z
+if z            ← 只知道 z 是未知，不知道它是从 x 一路来的</code></pre>
+
+        <p>
+            第二版改成给值打<strong>污染标记</strong>，标记跟着值一路走。
+            于是「怎么传过来的」从<strong>推断</strong>变成了<strong>事实</strong>。
+        </p>
+
+        <p>
+            这里还踩过一个坑，值得单独说：
+        </p>
+
+        <h3>两个独立来源，不能画成一条因果链</h3>
+
+        <p>
+            如果 <code>c「a + b」</code>，而 <code>a</code> 和 <code>b</code>
+            是两个<strong>互不相关</strong>的未知，那么画成
+            <code>a → b → c</code> 就是<strong>在撒谎</strong>——
+            它在声称「a 引起了 b」，而 a 和 b 毫无关系。
+        </p>
+
+        <p>
+            所以用两个不同的连接符：
+        </p>
+
+        <table>
+            <thead><tr><th>符号</th><th>含义</th><th>例子</th></tr></thead>
+            <tbody>
+                <tr><td><code>&gt;</code></td><td><strong>流过去</strong>：值从左边算出来，存进了右边</td><td><code>x&gt;y</code></td></tr>
+                <tr><td><code>+</code></td><td><strong>两个独立来源汇合</strong></td><td><code>a+b</code></td></tr>
+            </tbody>
+        </table>
+
+        <p>
+            渲染出来就是：
+        </p>
+
+        <pre><code>x → y → z → w              一条传递路径
+a → c 与 b → c             两个独立分支，都流进了 c</code></pre>
+
+        <p>
+            光靠一个符号表达不了这两种关系。
+        </p>
+
+        <h2>这门语言唯一「不是套壳」的东西</h2>
+
+        <p>
+            说白了，这个解释器 90% 的功能是「用更啰嗦的方式做 CPython
+            本来就会做的事」。三值逻辑是<strong>唯一一个例外</strong>——
+            CPython 里没有这个，你得自己实现。
+        </p>
+
+        <p>
+            完整设计见
+            <a href="https://github.com/Agying3/pyPython/blob/master/docs/decisions/0009-三值逻辑.md">ADR-0009</a>，
+            使用说明见
+            <a href="https://github.com/Agying3/pyPython/wiki/三值逻辑">wiki</a>。
+        </p>
+
+    </div>
+</article>
+
+<p style="text-align:center;">
+    <a href="../index.html" style="color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.4);">
+        ← 回到首页
+    </a>
+</p>
+
+</main>
+
+<footer class="footer">
+    © 2026 pyPython
+    <span class="sep">·</span>
+    本项目不追求正确，只追求过程
+    <span class="sep">·</span>
+    <a href="https://github.com/Agying3/pyPython/blob/master/LICENSE">WTFPL</a>
+</footer>
+
+<script>
+document.getElementById('themeBtn').addEventListener('click', function () {
+    var root = document.documentElement;
+    root.classList.toggle('darkmode');
+    try {
+        localStorage.setItem('pypy-theme',
+            root.classList.contains('darkmode') ? 'dark' : 'light');
+    } catch (e) {}
+});
+</script>
+
+</body>
+</html>

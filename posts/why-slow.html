@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>这门语言为什么这么慢 · pyPython</title>
+<meta name="description" content="pyPython 实测比 CPython 慢 686 倍。这个数字是刻意做出来的。">
+<link rel="stylesheet" href="../assets/style.css">
+<script>
+(function () {
+    var saved = null;
+    try { saved = localStorage.getItem('pypy-theme'); } catch (e) {}
+    var preferDark = window.matchMedia &&
+                     window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && preferDark)) {
+        document.documentElement.classList.add('darkmode');
+    }
+})();
+</script>
+</head>
+<body>
+
+<div class="top-shade"></div>
+
+<nav class="navbar">
+    <a class="brand" href="../index.html">pyPython</a>
+    <div class="nav-links">
+        <a href="../index.html">首页</a>
+        <a href="https://github.com/Agying3/pyPython/wiki">Wiki</a>
+        <a href="https://github.com/Agying3/pyPython/tree/master/docs/decisions">ADR</a>
+        <a href="https://github.com/Agying3/pyPython">仓库</a>
+        <button class="theme-toggle" id="themeBtn" title="切换深浅色" aria-label="切换深浅色">◐</button>
+    </div>
+</nav>
+
+<main class="container" style="padding-top: calc(var(--nav-h) + 40px);">
+
+<article class="article">
+    <header class="article-header">
+        <h1 class="article-title">这门语言为什么这么慢</h1>
+        <div class="post-meta">
+            <span class="tag">性能</span>
+            2026-10-01
+            <span class="sep">·</span>
+            阅读约 5 分钟
+        </div>
+    </header>
+
+    <div class="article-body">
+
+        <p>
+            大部分人做语言，目标是<strong>更快</strong>。
+            这门语言的目标是<strong>更慢</strong>，而且慢得可测量、可复现、
+            写进 ADR。
+        </p>
+
+        <p>
+            指标是：<strong>比 CPython 慢至少两个数量级</strong>，也就是 ≥100 倍。
+        </p>
+
+        <h2>两个基线，都报</h2>
+
+        <p>
+            「比 CPython 慢多少倍」这句话本身是不完整的——你得先说清
+            <strong>算的是哪一段</strong>。所以我用两个口径分别测：
+        </p>
+
+        <table>
+            <thead>
+                <tr><th>基线</th><th>口径</th><th>CPython</th><th>倍数</th><th>达标</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>A</strong></td>
+                    <td>只算执行（<code>timeit</code>，code object 预编译）</td>
+                    <td>0.37 微秒/次</td>
+                    <td><strong>686 倍</strong>（2.84 个数量级）</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td><strong>B</strong></td>
+                    <td>全流程（<code>exec</code>，含编译）</td>
+                    <td>24.4 微秒/次</td>
+                    <td><strong>12.1 倍</strong>（1.08 个数量级）</td>
+                    <td>❌</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            pyPython 自身约 <strong>255 微秒/次</strong>。
+        </p>
+
+        <p>
+            注意最后那一列。基线 B <strong>没达标</strong>——12.1 倍，
+            离 100 倍差得远。
+        </p>
+
+        <p>
+            这张图我也把「未达标」标了出来：
+        </p>
+
+        <img src="https://raw.githubusercontent.com/Agying3/pyPython/master/docs/perf.svg"
+             alt="性能对比图：pyPython 与两个基线的耗时范围">
+
+        <h2>为什么不把没达标那条藏起来</h2>
+
+        <p>
+            因为那是<strong>测量</strong>，不是宣传。
+        </p>
+
+        <p>
+            ADR-0001 里写了一条原则：<em>测量不打算造假</em>。
+            如果只报基线 A，结论会好听得多——「慢 686 倍，超额完成」。
+            但基线 B 才是用户真正感知到的速度：他敲一行代码、按回车、
+            等结果。那一段包含了编译，而编译是慢的大头。
+        </p>
+
+        <p>
+            只报 A 等于告诉用户一个他自己测不出来的数字。
+        </p>
+
+        <h2>为什么画「范围」而不是一根柱子</h2>
+
+        <p>
+            这是做图时最花时间的一个决定。我先采样了 14 轮，结果很说明问题：
+        </p>
+
+        <table>
+            <thead>
+                <tr><th>被测对象</th><th>范围</th><th>离散度</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>pyPython 自身</td><td>244 ~ 279 微秒</td><td><strong>14%</strong>（稳）</td></tr>
+                <tr><td>基线 A（timeit）</td><td>0.368 ~ 0.85 微秒</td><td><strong>120%</strong>（很不稳）</td></tr>
+                <tr><td>基线 B（exec）</td><td>20 ~ 35 微秒</td><td><strong>59%</strong>（不稳）</td></tr>
+            </tbody>
+        </table>
+
+        <p>
+            基线 A 抖了 <strong>120%</strong>。原因很简单：它本身只有零点几微秒，
+            <strong>GC 一次、系统调度一次，分母就能翻倍</strong>。
+        </p>
+
+        <p>
+            这种情况下画「一根精确的柱子」是撒谎。所以图上画的是
+            <strong>中位数 + 实测范围</strong>，并且在图里直接写明采样轮数和
+            「次之间会有偏差」。
+        </p>
+
+        <h2>结论是稳的</h2>
+
+        <p>
+            虽然具体倍数在漂，但<strong>量级结论不漂</strong>：
+        </p>
+
+        <ul>
+            <li>基线 A：<strong>462 ~ 743 倍</strong> —— 永远 ≥2 个数量级 ✅</li>
+            <li>基线 B：<strong>6.9 ~ 12.9 倍</strong> —— 永远 &lt;2 个数量级 ❌</li>
+        </ul>
+
+        <p>
+            所以「慢两个数量级」这个说法，在基线 A 的口径下成立，
+            在基线 B 的口径下不成立。这两句话我都要说。
+        </p>
+
+        <h2>那它靠什么慢下来的</h2>
+
+        <p>
+            不是靠「写得烂」。是靠<strong>每一步都绕一圈</strong>：
+        </p>
+
+        <ul>
+            <li>值不直接存，走一套自定义的 <code>encode</code>/<code>decode</code>
+                （长度前缀编码，见 ADR-0003）</li>
+            <li>任何值判断真假都要过一遍「真值密室」</li>
+            <li>AST 每个节点单独走一遍求值</li>
+        </ul>
+
+        <p>
+            这些在正常语言里都是要被优化掉的。这里是<strong>特意保留</strong>的——
+            ADR-0002 写着：<em>语法越简单，实现越应当啰嗦</em>。
+        </p>
+
+        <blockquote>
+            <p>
+                一门语言把语法减到极致，通常是为了让实现也简单。
+                这里反过来了：语法减到极致，实现却要故意绕远路。
+            </p>
+        </blockquote>
+
+    </div>
+</article>
+
+<p style="text-align:center;">
+    <a href="../index.html" style="color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.4);">
+        ← 回到首页
+    </a>
+</p>
+
+</main>
+
+<footer class="footer">
+    © 2026 pyPython
+    <span class="sep">·</span>
+    本项目不追求正确，只追求过程
+    <span class="sep">·</span>
+    <a href="https://github.com/Agying3/pyPython/blob/master/LICENSE">WTFPL</a>
+</footer>
+
+<script>
+document.getElementById('themeBtn').addEventListener('click', function () {
+    var root = document.documentElement;
+    root.classList.toggle('darkmode');
+    try {
+        localStorage.setItem('pypy-theme',
+            root.classList.contains('darkmode') ? 'dark' : 'light');
+    } catch (e) {}
+});
+</script>
+
+</body>
+</html>

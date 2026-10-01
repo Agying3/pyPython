@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一个空行引发的血案 · pyPython</title>
+<meta name="description" content="赋值成功、不报错、没效果。这类 bug 最难查。">
+<link rel="stylesheet" href="../assets/style.css">
+<script>
+(function () {
+    var saved = null;
+    try { saved = localStorage.getItem('pypy-theme'); } catch (e) {}
+    var preferDark = window.matchMedia &&
+                     window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && preferDark)) {
+        document.documentElement.classList.add('darkmode');
+    }
+})();
+</script>
+</head>
+<body>
+
+<div class="top-shade"></div>
+
+<nav class="navbar">
+    <a class="brand" href="../index.html">pyPython</a>
+    <div class="nav-links">
+        <a href="../index.html">首页</a>
+        <a href="https://github.com/Agying3/pyPython/wiki">Wiki</a>
+        <a href="https://github.com/Agying3/pyPython/tree/master/docs/decisions">ADR</a>
+        <a href="https://github.com/Agying3/pyPython">仓库</a>
+        <button class="theme-toggle" id="themeBtn" title="切换深浅色" aria-label="切换深浅色">◐</button>
+    </div>
+</nav>
+
+<main class="container" style="padding-top: calc(var(--nav-h) + 40px);">
+
+<article class="article">
+    <header class="article-header">
+        <h1 class="article-title">一个空行引发的血案</h1>
+        <div class="post-meta">
+            <span class="tag">踩坑</span>
+            2026-10-01
+            <span class="sep">·</span>
+            阅读约 5 分钟
+        </div>
+    </header>
+
+    <div class="article-body">
+
+        <p>
+            这个项目里反复出现同一类缺陷。累计已经<strong>十几次</strong>。
+            它们的形状几乎一模一样：
+        </p>
+
+        <blockquote>
+            <p>
+                <strong>同一个概念在两个地方各写了一份规则，然后两份漂移了。</strong>
+            </p>
+        </blockquote>
+
+        <p>
+            要命的是它们的长相：
+        </p>
+
+        <ul>
+            <li>❌ 不发生异常</li>
+            <li>❌ 不报错</li>
+            <li>✅ <strong>只是行为不对</strong></li>
+        </ul>
+
+        <pre><code>赋值"成功"了，不报错，只是没效果。
+程序"跑完"了，不报错，只是答案不对。</code></pre>
+
+        <p>
+            <strong>所以不能靠「跑起来没报错」判断正确性。</strong>
+            这句话写在 ADR 索引的第一条教训里，因为它是这个项目最贵的一课。
+        </p>
+
+        <h2>案例一：兜底分支把数据变成 0</h2>
+
+        <p>
+            早期解码失败时会「返回 0」兜底。于是：
+        </p>
+
+        <pre><code>$([1, [2, [3]]])      → [1, 0, [0]]      内层数据全丢，但不报错
+$(["a,b", "c"])       → 被切成 3 个元素</code></pre>
+
+        <p>
+            根因：列表原先用 <code>","</code> 拼接、<code>str.split(",")</code> 切分。
+            但<strong>内层列表编码后本身含逗号</strong>：
+        </p>
+
+        <pre><code>L:[N:2,L:[N:3]]</code></pre>
+
+        <p>
+            被外层一刀切开就成了残缺片段，正则匹配失败，
+            于是又落进那个「返回 0」的兜底分支——
+            <strong>同一个兜底分支连犯两案</strong>。
+        </p>
+
+        <p>
+            修法是改用<strong>长度前缀编码</strong>，元素边界由类型自己界定，
+            不依赖任何分隔符。这就是
+            <a href="https://github.com/Agying3/pyPython/blob/master/docs/decisions/0003-decode-长度前缀编码.md">ADR-0003</a>
+            的由来。
+        </p>
+
+        <blockquote>
+            <p>
+                兜底分支如果不区分「合法的空值」和「我解析失败了」，
+                它就会静默地把数据变成 0。
+            </p>
+        </blockquote>
+
+        <h2>案例二：报错文不对题</h2>
+
+        <p>
+            在函数外写 <code>全局「0」</code>，报的是：
+        </p>
+
+        <pre><code>这里需要一个缩进的语句块（if 后面必须跟缩进）</code></pre>
+
+        <p>
+            而实际错误跟 <code>if</code> <strong>毫无关系</strong>。
+            这条信息是加 <code>while</code>/<code>for</code>/<code>def</code>/<code>class</code>
+            <em>之前</em>写的，后来语句种类变多了，文案没跟着改。
+        </p>
+
+        <p>
+            这类坑的恶劣之处：它<strong>会报错</strong>，看起来很正常，
+            但把你引向完全错误的方向。你按提示去查 <code>if</code>，
+            查了半天，问题在别处。
+        </p>
+
+        <h2>案例三：一条永远绿的测试</h2>
+
+        <p>
+            这个我要单独讲，因为它比 bug 本身更值得警惕。
+        </p>
+
+        <p>
+            <code>test_keyword_sync.py</code> 从第二版起就在核对
+            「8 份关键字表是否同步」——这个项目里有 8 个地方各存了一份关键字表
+            （解释器、IDLE 的语法高亮、自动补全、光标提示……），
+            加一个关键字要改 8 个地方，漏一个就静默失效。
+        </p>
+
+        <p>
+            所以这个测试很重要。但它<strong>只 <code>print</code> 比对结果，
+            从不返回非 0</strong>。
+        </p>
+
+        <p>
+            结果是：在总入口里，它永远显示 <code>[OK]</code>——
+            <strong>即使某份表真的少了一个关键字。</strong>
+        </p>
+
+        <blockquote>
+            <p>
+                <strong>一个永远绿的测试，比没有测试更坏。</strong>
+                没有测试你知道自己没测；永远绿的测试让你以为自己测了。
+            </p>
+        </blockquote>
+
+        <p>
+            同一个教训还适用于<strong>用例的期望值</strong>。ADR-0008 里有个
+            短路求值的用例，第一版写成「输出里有 <code>0</code> 就算过」——
+            那样即使短路完全失效也会通过，等于没测。
+            改成检查「副作用函数的输出<strong>没有</strong>出现」才真正起作用。
+        </p>
+
+        <h2>案例四：改名不报错，只是不生效</h2>
+
+        <p>
+            这个坑我栽了不止一次，而且每次都是同一个形状。
+        </p>
+
+        <p>
+            想改一个东西的行为，改了「看起来该改的那个名字」，
+            跑起来<strong>什么都没发生</strong>——没报错，只是没效果。
+            因为真正被读取的是<strong>另一个地方的同名副本</strong>。
+        </p>
+
+        <p>
+            我甚至在某次提交信息里写了：
+        </p>
+
+        <blockquote>
+            <p>
+                修复：又一个「看起来该改的名字不是真正被读的那个」（第 9 次）
+            </p>
+        </blockquote>
+
+        <p>
+            所以本项目的可靠做法只有两条：
+        </p>
+
+        <ol>
+            <li><strong>读源码找出真正的读取点</strong>，不要猜哪个名字「应该」生效</li>
+            <li><strong>写一个会失败的对照测试</strong>——测不出问题的测试等于没测</li>
+        </ol>
+
+        <h2>为什么专门记这些</h2>
+
+        <p>
+            不是为了说「我们修了 31 个 bug」。是为了指出：
+            <strong>它们几乎全是同一个形状</strong>。
+        </p>
+
+        <p>
+            看清形状之后，防御手段才有针对性——
+            不是「更仔细一点」，而是<strong>结构上消除重复</strong>：
+            能用一份的就不要写两份，必须写两份的就用测试钉死。
+        </p>
+
+        <p>
+            完整清单见
+            <a href="https://github.com/Agying3/pyPython/wiki/踩坑记录">wiki 的踩坑记录</a>。
+        </p>
+
+    </div>
+</article>
+
+<p style="text-align:center;">
+    <a href="../index.html" style="color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.4);">
+        ← 回到首页
+    </a>
+</p>
+
+</main>
+
+<footer class="footer">
+    © 2026 pyPython
+    <span class="sep">·</span>
+    本项目不追求正确，只追求过程
+    <span class="sep">·</span>
+    <a href="https://github.com/Agying3/pyPython/blob/master/LICENSE">WTFPL</a>
+</footer>
+
+<script>
+document.getElementById('themeBtn').addEventListener('click', function () {
+    var root = document.documentElement;
+    root.classList.toggle('darkmode');
+    try {
+        localStorage.setItem('pypy-theme',
+            root.classList.contains('darkmode') ? 'dark' : 'light');
+    } catch (e) {}
+});
+</script>
+
+</body>
+</html>

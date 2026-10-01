@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>为什么我坚持不用 matplotlib · pyPython</title>
+<meta name="description" content="要在网页上画一张性能对比图。装个库只要一行命令，我选择了手写 316 行。">
+<link rel="stylesheet" href="../assets/style.css">
+<script>
+(function () {
+    var saved = null;
+    try { saved = localStorage.getItem('pypy-theme'); } catch (e) {}
+    var preferDark = window.matchMedia &&
+                     window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && preferDark)) {
+        document.documentElement.classList.add('darkmode');
+    }
+})();
+</script>
+</head>
+<body>
+
+<div class="top-shade"></div>
+
+<nav class="navbar">
+    <a class="brand" href="../index.html">pyPython</a>
+    <div class="nav-links">
+        <a href="../index.html">首页</a>
+        <a href="https://github.com/Agying3/pyPython/wiki">Wiki</a>
+        <a href="https://github.com/Agying3/pyPython/tree/master/docs/decisions">ADR</a>
+        <a href="https://github.com/Agying3/pyPython">仓库</a>
+        <button class="theme-toggle" id="themeBtn" title="切换深浅色" aria-label="切换深浅色">◐</button>
+    </div>
+</nav>
+
+<main class="container" style="padding-top: calc(var(--nav-h) + 40px);">
+
+<article class="article">
+    <header class="article-header">
+        <h1 class="article-title">为什么我坚持不用 matplotlib</h1>
+        <div class="post-meta">
+            <span class="tag">工程</span>
+            2026-10-01
+            <span class="sep">·</span>
+            阅读约 5 分钟
+        </div>
+    </header>
+
+    <div class="article-body">
+
+        <p>
+            我要画一张性能对比图，放到 GitHub 上。
+        </p>
+
+        <p>
+            装 matplotlib 只要一行命令：<code>pip install matplotlib</code>。
+            三分钟就能出图。
+        </p>
+
+        <p>
+            我选择了手写 <strong>316 行 Python</strong>，拼 SVG 字符串。
+        </p>
+
+        <h2>理由一：项目有一条硬约束</h2>
+
+        <p>
+            <a href="https://github.com/Agying3/pyPython/blob/master/docs/decisions/0001-pyPython-宿主与定位.md">ADR-0001</a>
+            写着两个字：<strong>纯 Python</strong>。
+        </p>
+
+        <p>
+            这条约束有多硬？解释器里连 <code>json</code> 和 <code>pickle</code>
+            都是<strong>被否掉</strong>的——
+            值的编码是自己写的长度前缀格式（
+            <a href="https://github.com/Agying3/pyPython/blob/master/docs/decisions/0003-decode-长度前缀编码.md">ADR-0003</a>），
+            因为「用标准库的序列化」也算借用外部能力。
+        </p>
+
+        <p>
+            所以问题就变成：<strong>为什么画图可以例外？</strong>
+        </p>
+
+        <p>
+            我想不出理由。如果解释器的值编码要手写，那画一张图的坐标轴也得手写。
+        </p>
+
+        <blockquote>
+            <p>
+                一个约束如果在不方便的时候就被放弃，
+                那它从来就不是约束，只是偏好。
+            </p>
+        </blockquote>
+
+        <h2>理由二：SVG 本来就是文本</h2>
+
+        <p>
+            这一点让手写变得没那么痛苦。
+            SVG 是 XML，<strong>拼字符串就能画图</strong>：
+        </p>
+
+        <pre><code>&lt;rect x="150" y="96" width="40" height="220" fill="#009688"/&gt;
+&lt;text x="170" y="90" text-anchor="middle"&gt;686&lt;/text&gt;</code></pre>
+
+        <p>
+            就这两行，一根柱子加一个标签。
+            没有坐标系变换、没有画布对象、没有 <code>plt.show()</code>。
+        </p>
+
+        <p>
+            真正花时间的不是「画」，是<strong>排版</strong>——
+            算每个标签放哪、别打架、边距留多少。
+        </p>
+
+        <h2>踩到的坑：元素撞在一起</h2>
+
+        <p>
+            第一版布局里，右下角的结论说明框<strong>压在第三根柱子上</strong>。
+        </p>
+
+        <p>
+            问题是我这个模型<strong>看不了图</strong>——没法打开看一眼说
+            「嗯这里有点挤」。
+        </p>
+
+        <p>
+            所以改用<strong>几何自检</strong>：解析 SVG，算出每个
+            <code>&lt;text&gt;</code> 和 <code>&lt;rect&gt;</code> 的包围盒，
+            两两检查有没有相交。
+        </p>
+
+        <pre><code>结论框 x 范围: 608 ~ 868
+柱子3 标签 x 范围: 725 ~ 745     ← 相交！</code></pre>
+
+        <p>
+            程序报出来后改成给结论区单独留右边距（<code>MR: 150 → 260</code>），
+            再跑一遍，0 处相交。
+        </p>
+
+        <p>
+            这件事的教训不在于「要小心」，而在于：
+            <strong>当你没法用眼睛验收时，就把验收条件写成程序。</strong>
+        </p>
+
+        <h2>顺带修掉一个更隐蔽的问题</h2>
+
+        <p>
+            项目里有 12 个测试脚本，它们全都写死了绝对路径：
+        </p>
+
+        <pre><code>os.path.join("H:\\pyPython", "pypython.py")   ← 写死的</code></pre>
+
+        <p>
+            在本机跑没问题。<strong>一上 CI 就全崩</strong>——
+            GitHub 的构建机上根本没有 <code>H:\</code> 这个盘。
+        </p>
+
+        <p>
+            改成按脚本自身位置反推根目录：
+        </p>
+
+        <pre><code>_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))</code></pre>
+
+        <p>
+            改这个的时候我第一次改错了——用正则替换，
+            结果把空行和注释都吃掉了，文档字符串粘成一片。
+            <strong>没有任何报错</strong>，只是文件变得面目全非。
+        </p>
+
+        <p>
+            又是那个熟悉的形状：<strong>静默失效</strong>。
+        </p>
+
+        <h2>怎么验证「真的修好了」</h2>
+
+        <p>
+            这里我差点骗过自己。
+        </p>
+
+        <p>
+            改完之后在本机跑测试，全过。看起来修好了。
+            但<strong>本机测试根本证明不了</strong>——因为 Python 会把
+            当前目录加进模块搜索路径，而我的当前目录<strong>就是</strong>项目根目录。
+            写死的路径恰好也能找到文件。
+        </p>
+
+        <p>
+            真正的验证是：<strong>把工作目录换到项目外面再跑</strong>。
+        </p>
+
+        <table>
+            <thead><tr><th>做法</th><th>在项目外跑的结果</th></tr></thead>
+            <tbody>
+                <tr><td>写死 <code>H:\pyPython</code></td>
+                    <td><code>ModuleNotFoundError</code>，退出码 1</td></tr>
+                <tr><td>按脚本位置反推</td>
+                    <td><strong>33/33 通过</strong></td></tr>
+            </tbody>
+        </table>
+
+        <p>
+            这才是证据。
+        </p>
+
+        <blockquote>
+            <p>
+                测试通过不证明代码正确，只证明<strong>测试没测到问题</strong>——
+                除非你能说清它是怎么失败的。
+            </p>
+        </blockquote>
+
+        <h2>结果</h2>
+
+        <p>
+            最后产出：<code>tools/make_perf_chart.py</code>，
+            316 行，零依赖，生成一个 7.7 KB 的 SVG。
+        </p>
+
+        <p>
+            它还带了一个反向断言——测试会检查<strong>这个脚本里没有出现
+            <code>matplotlib</code>、<code>numpy</code>、<code>pandas</code>
+            这些导入</strong>。我特意试过往里面加一行
+            <code>import matplotlib</code>，确认测试真的会红。
+        </p>
+
+        <p>
+            <strong>测不出问题的测试等于没测。</strong>
+        </p>
+
+    </div>
+</article>
+
+<p style="text-align:center;">
+    <a href="../index.html" style="color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.4);">
+        ← 回到首页
+    </a>
+</p>
+
+</main>
+
+<footer class="footer">
+    © 2026 pyPython
+    <span class="sep">·</span>
+    本项目不追求正确，只追求过程
+    <span class="sep">·</span>
+    <a href="https://github.com/Agying3/pyPython/blob/master/LICENSE">WTFPL</a>
+</footer>
+
+<script>
+document.getElementById('themeBtn').addEventListener('click', function () {
+    var root = document.documentElement;
+    root.classList.toggle('darkmode');
+    try {
+        localStorage.setItem('pypy-theme',
+            root.classList.contains('darkmode') ? 'dark' : 'light');
+    } catch (e) {}
+});
+</script>
+
+</body>
+</html>
