@@ -170,8 +170,11 @@ def post_card(a, word_n, mins, root=""):
     # 几乎看不见；🔖 是实心的彩色，认得出来。这类事只能渲染出来看，
     # 光看码点猜不出来。
     tags = "".join('<span class="tag">%s</span>' % t for t in a["tags"])
+    # 摘要单独一行：参考站的卡片是「标题 / 摘要 / 元信息 / 标签」四段，
+    # 第一版没有摘要，卡片看着很空（这条是对比截图之后补的）
     return """        <a class="post-card" href="{root}posts/{slug}.html">
             <h3 class="post-title">{title}</h3>
+            <p class="post-excerpt">{excerpt}</p>
             <div class="post-meta">
                 <span class="m">📅 {date}</span>
                 <span class="m">📄 {words} 字</span>
@@ -180,7 +183,8 @@ def post_card(a, word_n, mins, root=""):
             <div class="post-tags">🔖 {tags}</div>
         </a>
 """.format(root=root, slug=a["slug"], title=a["title"], date=a["date"],
-           words="{:,.0f}".format(word_n), mins=mins, tags=tags)
+           words="{:,.0f}".format(word_n), mins=mins, tags=tags,
+           excerpt=a["excerpt"])
 
 
 def build(check_only=False):
@@ -211,22 +215,24 @@ def build(check_only=False):
 """
 
     # ------------------------------------------------------------ 首页
+    # "全部文章"这个分组标题挪到 .content 里（由 BODY 输出），
+    # 和参考站一致：滚动之后第一屏顶部是一条白字大标题，不是胶囊。
     cards = "".join(
         post_card(a, meta[a["slug"]][0], meta[a["slug"]][1], root="")
         for a in ARTICLES
     )
 
     home_body = """        <div class="post-card">
-            <h2 class="post-title plain" style="text-align:center;">
+            <h2 class="post-title plain" style="text-align:center;font-weight:600;">
                 欢迎来到 pyPython
             </h2>
-            <p style="text-align:center;color:var(--text-sub);margin:0;">
+            <p class="post-excerpt" style="text-align:center;margin:0;">
                 一门用纯 Python 写的解释器，故意比 CPython 慢两个数量级。<br>
                 下面是这个项目里值得单独讲讲的几件事。
             </p>
         </div>
 
-        <h2 id="posts" class="section-title">📄 全部文章</h2>
+        <h2 id="posts" class="section-title">全部文章</h2>
 
 """ + cards
 

@@ -10,66 +10,124 @@
    外观参考 xing.xo.je（站主同意）。原站用的是 Argon 主题的观感：
    左栏信息面板 + 右侧半透明卡片 + 顶部半透明导航。
 
-   #41「把 CSS 注释里的示例当成真实配置，主色抄错了」
+   ————————————————————————————————————————————————————————————————
+   #46「字体、透明度、字色"看着像"，一跑 `getComputedStyle` 全不对」
    {
-     曾出现：我把主色写成 #009688（青），而原站实际是 #5e72e4（紫）。
-             直到截了图对比才发现：导航栏、栏目标题、文章标题全是紫的
-     根因：原站自定义 CSS 里有这么一段（下面把 CSS 注释符号写成「」，
-           因为 CSS 的块注释不能嵌套 —— 我第一版真写成了嵌套注释，
-           内层那个结束符号直接把外层提前结束掉，整个样式表就废了。
-           更糟的是我在写这条教训时，又在同一段注释里打了那两个字面字符，
-           于是又断了一次。所以这里一律用「」代替）——
-             :root {
-                 「也可以用类似于 --color-border-on-foreground-deeper: #009688; 这样的命令」
-                 --color-border-on-foreground-deeper: rgba(var(--themecolor-rgbstr));
-             }
-           那个 #009688 是**注释里的示例**，示范语法用的，不是配置。
-           全文只有一处 --themecolor 声明，值是 #5e72e4
-     修法：改成 #5e72e4
-     教训：**注释里的值不是配置。** 同一类错误我在本文件的自检脚本里
-           刚防过一次（检查"没混进默认色"时必须先剥掉注释，否则误报），
-           结果转头自己去读注释了。
-           本项目那条老教训在这里第三次应验：不要猜哪个值生效，读真正生效的那一处
+     曾出现：前几版我把字体写成 -apple-system / Microsoft YaHei 系统栈，
+             卡片底色 .82、标题色用了主色紫。肉眼看"差不多"，
+             但和参考站截图并排一比，标题像两套字、卡片也不够不透明
+     根因：**外观不是靠读源码猜出来的，要看浏览器真正算出来的值。**
+           参考站的 font-family 第一项是 `echo` —— 而 `echo` 不是系统字体，
+           是站主自己 @font-face 挂上去的一款网页字体：
+             @font-face { font-family: echo;
+                          src: url(.../bloghelper/fonts/13.woff2) }
+           把那个 woff2 拉下来读 name 表：HYTangMeiRen-55W / 汉仪唐美人 55W。
+           中文回退到 Noto Serif SC（思源宋体），不是黑体。
+           字色也一样：卡片标题 rgb(137,152,235)，是主色掺了一档白，
+           不是 var(--theme) 那个 #5e72e4
+     修法：见下。每个 "--ref-*" 变量后面都写了它是怎么量出来的
+     教训：**"看起来一样"不是验收标准。** 量出来、写进检查、能变红，才算。
    }
 
-   背景：单张壁纸（波奇酱），深浅色都用它，深色模式压暗。
-   #42「按文件名认定图片内容，把蜡笔小新当成了波奇酱」
-   {
-     曾出现：我把 卧室-夜晚-小新-scaled.jpg 直接当成"蜡笔小新的深夜卧室"，
-             写进 ADR、照搬上站，从没验证过图里画的是什么
-     根因：文件名不是内容。而且当时模型看不了图，只能猜
-     修法：换成 day.jpg（波奇酱，用户确认）
-     教训：**文件名不等于内容。** 看不了图就不要对图里是什么下结论，
-           要么问，要么把候选摆出来让人挑
-   }
+   量法（工具都留在 tools/，可复现）：
+     tools/probe_ref.py       CDP 读 getComputedStyle，全量落 _ref/ref.json
+     tools/probe_ref2.py      同上，专挑颜色/尺寸/按钮/小标签
+     tools/probe_fonts.py     枚举 document.fonts + @font-face 的 src
+     tools/probe_hero_font.py 从截图反推首屏标题字号（用字形轮廓，不靠眼）
+     tools/check_style_tokens.py  把下面这些结论钉死成断言
+
+   参考站量到的关键事实（1440 宽，dark）：
+     正文字体栈  echo, Georgia, -apple-system, "Nimbus Roman No9 L",
+                 "PingFang SC", "Hiragino Sans GB", "Noto Serif SC", …
+     标题字体    `echo` 一品，400 字重，字号 44px 左右
+                 （等宽实测：汉字墨迹 38px ÷ 0.8614em = 44.1px）
+     导航        底色 rgba(0,0,0,0) 全透明，没有毛玻璃，没有下边框
+                 链接 rgba(255,255,255,.95)，16px；品牌 19.2px / 600
+     卡片        底色 rgba(66,66,66,.95) —— **不是 .82**
+                 圆角 15px，阴影 0 2px 4px rgba(0,0,0,.075)
+     左栏面板    底色 rgba(66,66,66,.9)，比卡片再透一档
+     卡片标题    rgb(137,152,235)，25px，400，字距 .5px
+     摘要        19.2px / 300，正文色 rgb(238,238,238)
+     小标签      rgba(42,45,66) 底，14px / 600
+     按钮        14px / 600，字距 .35px，圆角 4px，底 #5e72e4
+     页脚        底色 rgba(66,66,66,.9) 且整块 opacity .6
+     首屏副标题  左靛蓝 → 右珊瑚色的横向渐变，不是纯白
    ========================================================================== */
 
 :root {
+    /* —— 品牌色：参考站只有一个 --themecolor: #5e72e4（#41 那次的结论没变） */
     --theme: #5e72e4;
     --theme-rgb: 94, 114, 228;
     --theme-dark: #4c5fd7;
+    /* 标题紫：getComputedStyle 量到 rgb(137,152,235)，不是 --theme 本身 */
+    --theme-title: #8998eb;
+
+    /* —— 字体。前面两项跟参考站逐字一致；echo 是网页字体，见下方 @font-face */
+    --font-body: echo, Georgia, -apple-system, "Nimbus Roman No9 L",
+                 "PingFang SC", "Hiragino Sans GB", "Noto Serif SC",
+                 "Microsoft YaHei", "WenQuanYi Micro Hei", "ST Heiti", sans-serif;
+    --font-head: echo, var(--font-body);
+    --font-mono: "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+
+    /* —— 首屏标题：44px 是反推出来的。参考站 CSS 声明 40px，
+       但 `echo` 的汉字只占 em 的 .80~.90，落屏后视觉高度不达标，
+       所以按字形实测补到 44px */
+    --hero-size: 44px;
+
     --card-radius: 15px;
-    --card-bg: rgba(255, 255, 255, .82);
-    --card-bg-solid: #ffffff;
-    --bg-body: #f4f6f9;
-    --text: #364863;
-    --text-sub: #8898aa;
-    --border: rgba(0, 0, 0, .06);
+    --border: rgba(255, 255, 255, .08);
     --nav-h: 52px;
     --side-w: 300px;
     --shadow: 0 .125rem .25rem rgba(0, 0, 0, .075);
     --shadow-lg: 0 8px 24px rgba(50, 50, 93, .12), 0 3px 10px rgba(0, 0, 0, .06);
+
+    /* —— 透明度三档。参考站是 dark-first，我把两套都对齐它的 dark 值 */
+    --card-bg: rgba(66, 66, 66, .95);          /* 卡片：量到 .95 */
+    --card-bg-solid: #424242;
+    --widget-bg: rgba(66, 66, 66, .9);         /* 左栏面板：量到 .9 */
+    --tile-bg: rgb(42, 45, 66);                /* 小标签：量到 rgb(42,45,66) */
+    --bg-body: rgb(34, 35, 42);                /* 页面兜底底色 */
+    --text: rgb(238, 238, 238);                /* 正文：量到 #eee */
+    --text-sub: rgba(238, 238, 238, .62);
+    --nav-text: rgba(255, 255, 255, .95);
+    --footer-opacity: .6;                      /* 页脚整块 .6 */
+
+    /* 深／浅两套只换颜色，不换层级。参考站是暗底优先（它 dark 模式的
+       卡片 rgba(66,66,66,.95) 才是站主真正在用的那套观感），
+       所以本站**默认就走 dark 那套**，浅色是可选项。
+       #47「默认配色选错了分支」：无头浏览器不跟随系统深色偏好，
+       于是实算出来是浅色 .95 白底，跟参考站量到的值对不上 —— 断言当场变红。
+       修法不是改断言，是把它设成默认。 */
 }
 
-html.darkmode {
-    --card-bg: rgba(30, 30, 45, .82);
-    --card-bg-solid: #1e1e2d;
-    --bg-body: #151521;
-    --text: #d8dce8;
-    --text-sub: #8a8a9e;
-    --border: rgba(255, 255, 255, .08);
-    --shadow: 0 .125rem .25rem rgba(0, 0, 0, .35);
-    --shadow-lg: 0 8px 24px rgba(0, 0, 0, .45);
+html.lightmode {
+    --card-bg: rgba(255, 255, 255, .95);
+    --card-bg-solid: #ffffff;
+    --widget-bg: rgba(255, 255, 255, .9);
+    --tile-bg: rgba(94, 114, 228, .12);
+    --bg-body: #f4f6f9;
+    --text: #2d3748;
+    --text-sub: rgba(45, 55, 72, .62);
+    --theme-title: #5e72e4;
+    --border: rgba(0, 0, 0, .06);
+    --shadow: 0 .125rem .25rem rgba(0, 0, 0, .075);
+    --shadow-lg: 0 8px 24px rgba(50, 50, 93, .12), 0 3px 10px rgba(0, 0, 0, .06);
+}
+
+/* ---------------------------------------------------------------- 字体
+   参考站的 `echo` = 汉仪唐美人 55W（woff2 的 name 表：HYTangMeiRen-55W）。
+   这里直接用同款网页字体，字体文件放在 assets/fonts/，**不引第三方 CDN** ——
+   一是 ADR-0001，二是引 CDN 的话断网就回退成黑体，又变成"看着不像"。
+
+   {降级：assets/fonts/hy-tangmeiren.woff2 不存在时这条规则被浏览器忽略，
+   自动落到 Georgia / 思源宋体，观感偏宋体但不是黑体，属于可接受的降级。
+   要换字体只需覆盖这一个文件，不用改 CSS} */
+@font-face {
+    font-family: echo;
+    src: url("fonts/hy-tangmeiren.woff2") format("woff2");
+    font-weight: 400 700;
+    font-style: normal;
+    font-display: swap;
 }
 
 * { box-sizing: border-box; }
@@ -77,20 +135,23 @@ html.darkmode {
 body {
     margin: 0;
     min-height: 100vh;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-                 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
-                 "Noto Serif SC", sans-serif;
-    font-size: 15px;
+    font-family: var(--font-body);
+    font-size: 16px;             /* 参考站正文 16px（不是 15px） */
     line-height: 1.75;
     color: var(--text);
     background: var(--bg-body);
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
 }
 
 /* ---------------------------------------------------------------- 背景层
 
    单张壁纸固定铺满。深色模式只是压暗，不换图。
-   {意图：用户要波奇酱，不要那张蜡笔小新的卧室图；所以深浅色共用一张} */
+   {意图：用户要波奇酱，不要那张蜡笔小新的卧室图；所以深浅色共用一张}
+
+   opacity：参考站整张壁纸偏暗（#42 那次换图之后），这里压到 .62；
+   **这个 .62 是把两张截图放在一起调出来的，不是拍的数**，
+   所以 check_style_tokens.py 只断言"在 .55~.72 区间"，不断言精确值。 */
 
 body::before {
     content: '';
@@ -98,16 +159,18 @@ body::before {
     inset: 0;
     z-index: -2;
     background: url("img/bg.jpg") center/cover no-repeat;
-    opacity: .7;
+    opacity: .62;
     transition: opacity .5s ease, filter .5s ease;
 }
 
-html.darkmode body::before {
-    opacity: .55;
+/* 深色压暗只在浅色模式下生效；默认本来就是暗的，不用再压 */
+html.lightmode body::before {
+    opacity: .5;
     filter: brightness(.62);
 }
 
-/* 顶部渐变遮罩：让半透明导航栏上的文字在任何壁纸上都读得清 */
+/* 顶部渐变遮罩：让半透明导航栏上的文字在任何壁纸上都读得清。
+   参考站那层很淡（量不到明显渐变），所以这里也压到 .16/.06。 */
 body > .top-shade {
     position: fixed;
     left: 0;
@@ -117,10 +180,14 @@ body > .top-shade {
     z-index: -1;
     pointer-events: none;
     background: linear-gradient(180deg,
-        rgba(0, 0, 0, .22) 0%, rgba(0, 0, 0, .12) 40%, rgba(0, 0, 0, 0) 100%);
+        rgba(0, 0, 0, .16) 0%, rgba(0, 0, 0, .06) 40%, rgba(0, 0, 0, 0) 100%);
 }
 
-/* ---------------------------------------------------------------- 导航栏 */
+/* ---------------------------------------------------------------- 导航栏
+
+   参考站：header-global 背景 **全透明**，没有 backdrop-filter，没有下边框；
+   文字 rgba(255,255,255,.95)，链接 16px，内边距 16px 22.4px。
+   第一版我给它刷了一层主色 + 毛玻璃，跟参考站差得最远的就是这里。 */
 
 .navbar {
     position: fixed;
@@ -132,20 +199,19 @@ body > .top-shade {
     display: flex;
     align-items: center;
     padding: 0 18px;
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    /* 主题色半透明 —— 参考图里导航栏是带色彩的一层，不是白的 */
-    background: rgba(var(--theme-rgb), .78);
-    border-bottom: 1px solid rgba(255, 255, 255, .12);
-    transition: background .3s ease;
+    background: transparent;
+    border-bottom: 1px solid transparent;
+    transition: background .3s ease, border-color .3s ease;
 }
 
 .navbar .brand {
-    color: #fff;
-    font-weight: 700;
-    font-size: 15.5px;
+    color: var(--nav-text);
+    font-family: var(--font-head);
+    font-weight: 600;
+    font-size: 19.2px;          /* 量到 19.2px */
+    line-height: 1.5;
     text-decoration: none;
-    letter-spacing: .5px;
+    letter-spacing: .05px;
     display: flex;
     align-items: center;
     gap: 7px;
@@ -156,37 +222,38 @@ body > .top-shade {
     width: 24px;
     height: 24px;
     border-radius: 7px;
-    background: rgba(255, 255, 255, .22);
+    background: rgba(255, 255, 255, .18);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .navbar .nav-links {
     display: flex;
-    gap: 2px;
+    gap: 0;
     align-items: center;
 }
 
 .navbar .nav-links a {
-    color: rgba(255, 255, 255, .92);
+    color: var(--nav-text);
     text-decoration: none;
-    font-size: 13.5px;
-    padding: 7px 12px;
-    border-radius: 8px;
+    font-size: 16px;            /* 量到 16px，不是 13.5px */
+    padding: 16px 22px;         /* 量到 16px 22.4px，撑出 62px 高的热区 */
+    border-radius: 4px;
     display: flex;
     align-items: center;
-    gap: 5px;
-    transition: background .2s;
+    gap: 6px;
+    transition: color .2s, background .2s;
     white-space: nowrap;
 }
 
+/* 参考站选中态是"字更白 + 图标轻微发光"，不是刷一块底色 */
 .navbar .nav-links a:hover,
 .navbar .nav-links a.active {
-    background: rgba(255, 255, 255, .18);
     color: #fff;
+    background: rgba(255, 255, 255, .08);
 }
 
 .navbar .nav-right {
@@ -197,9 +264,9 @@ body > .top-shade {
 }
 
 .theme-toggle {
-    background: rgba(255, 255, 255, .14);
+    background: rgba(255, 255, 255, .1);
     border: none;
-    color: #fff;
+    color: var(--nav-text);
     cursor: pointer;
     width: 30px;
     height: 30px;
@@ -210,8 +277,19 @@ body > .top-shade {
 }
 
 .theme-toggle:hover {
-    background: rgba(255, 255, 255, .26);
+    background: rgba(255, 255, 255, .24);
     transform: rotate(20deg);
+}
+
+/* 滑过封面之后才给导航上底色 —— 参考站用的是 headroom + 滚动变实，
+   这里保留原行为，但颜色改成参考站实色那条 rgba(66,66,66,.9)，
+   不再刷主色紫。 */
+body.has-cover .navbar.scrolled,
+body:not(.has-cover) .navbar {
+    background: rgba(66, 66, 66, .9);
+    border-bottom-color: rgba(255, 255, 255, .08);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
 }
 
 /* ---------------------------------------------------------------- 封面
@@ -234,22 +312,37 @@ body > .top-shade {
     position: relative;
 }
 
+/* 标题：参考站用 `echo` 单字重、400 字重、几乎不加字距，
+   阴影只有一层很淡的 0 5px 15px rgba(0,0,0,.2)（量到）。
+   第一版我写了 46px / 700 / 3px 字距 + 双层重阴影 —— 那是"能读清"，
+   不是参考站。参考站的字是淡的，靠壁纸暗部托出来。 */
 .cover-title {
-    font-size: 46px;
-    font-weight: 700;
-    margin: 0 0 16px;
-    letter-spacing: 3px;
-    /* 两层阴影：近处一层保证边缘清楚，远处一层把字从背景里拉出来。
-       壁纸浅色区域（比如那面砖墙）上，只靠一层柔和阴影读不清。 */
-    text-shadow: 0 2px 6px rgba(0, 0, 0, .55), 0 8px 30px rgba(0, 0, 0, .5);
+    font-family: var(--font-head);
+    font-size: var(--hero-size);
+    font-weight: 400;
+    margin: 0 0 14px;
+    letter-spacing: 0;
+    line-height: 1.5;
+    color: #fff;
+    text-shadow: 0 5px 15px rgba(0, 0, 0, .2);
 }
 
+/* 副标题：参考站是**横向渐变色文字**，左靛蓝 → 右珊瑚。
+   量法：截图里逐像素取色，左边 rgb(139,143,235) 一线，右边 rgb(240,146,118) 一线。
+   这里用 background-clip: text 复刻；不支持时回落到 --text 色的白。 */
 .cover-sub {
-    font-size: 16px;
+    font-family: var(--font-head);
+    font-size: 19.2px;
+    font-weight: 400;
     margin: 0;
-    opacity: .98;
-    letter-spacing: .5px;
-    text-shadow: 0 1px 4px rgba(0, 0, 0, .8), 0 3px 16px rgba(0, 0, 0, .6);
+    letter-spacing: .02em;
+    background: linear-gradient(90deg,
+        #8b8feb 0%, #a48be0 30%, #d18fbf 58%, #ef8a83 82%, #f0a07a 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: #cfd3f5;                 /* 回落色 */
+    text-shadow: none;
 }
 
 /* 向下的箭头。
@@ -260,12 +353,12 @@ body > .top-shade {
     right: 0;
     bottom: 30px;
     text-align: center;
-    color: #fff;
-    font-size: 32px;
+    color: rgba(255, 255, 255, .9);
+    font-size: 30px;
     line-height: 1;
     text-decoration: none;
     opacity: .95;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, .75);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .55);
     animation: cover-bounce 2.1s ease-in-out infinite;
 }
 
@@ -278,22 +371,6 @@ body > .top-shade {
 
 @media (prefers-reduced-motion: reduce) {
     .cover-scroll { animation: none; }
-}
-
-/* 有封面的页面：导航栏一开始透明（叠在壁纸上），滑过封面才变实色。
-   参考站就是这个行为。 */
-body.has-cover .navbar {
-    background: transparent;
-    border-bottom-color: transparent;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-}
-
-body.has-cover .navbar.scrolled {
-    background: rgba(var(--theme-rgb), .82);
-    border-bottom-color: rgba(255, 255, 255, .12);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
 }
 
 /* 封面已经占满一屏，内容区不用再躲导航栏 */
@@ -334,34 +411,37 @@ body.has-cover .layout {
     -webkit-backdrop-filter: blur(10px);
 }
 
+/* 参考站左栏没有"主色标题条"，标题是面板里的一行字，底色跟着面板走。
+   第一版我加了整条主色 —— 那是最扎眼的一处不像。 */
 .widget-head {
-    background: var(--theme);
-    color: #fff;
-    font-size: 13.5px;
+    background: var(--widget-bg);
+    color: var(--text);
+    font-size: 15px;
     font-weight: 600;
-    padding: 9px 15px;
+    padding: 12px 15px;
     display: flex;
     align-items: center;
     gap: 7px;
     letter-spacing: .3px;
+    border-bottom: 1px solid var(--border);
 }
 
 .widget-body {
-    background: var(--card-bg);
+    background: var(--widget-bg);
     padding: 14px 16px;
-    font-size: 13.5px;
+    font-size: 14px;
     line-height: 1.7;
 }
 
 .widget-body p { margin: 0 0 8px; }
 .widget-body p:last-child { margin-bottom: 0; }
 
-.widget-body a { color: var(--theme); text-decoration: none; }
+.widget-body a { color: var(--theme-title); text-decoration: none; }
 .widget-body a:hover { text-decoration: underline; }
 
 /* 左栏导航列表 */
 .side-nav {
-    background: var(--card-bg);
+    background: var(--widget-bg);
     border-radius: var(--card-radius);
     overflow: hidden;
     box-shadow: var(--shadow-lg);
@@ -377,7 +457,7 @@ body.has-cover .layout {
     padding: 11px 16px;
     color: var(--text);
     text-decoration: none;
-    font-size: 14px;
+    font-size: 15px;
     border-bottom: 1px solid var(--border);
     transition: background .2s, color .2s;
 }
@@ -385,8 +465,8 @@ body.has-cover .layout {
 .side-nav a:last-child { border-bottom: none; }
 
 .side-nav a:hover {
-    background: rgba(var(--theme-rgb), .1);
-    color: var(--theme);
+    background: rgba(255, 255, 255, .06);
+    color: var(--theme-title);
 }
 
 /* 当前页高亮。
@@ -400,17 +480,21 @@ body.has-cover .layout {
      教训：**选择器和生成代码之间的约定，是一份隐式的"两份副本"。**
            改类名时两边都要动，而漏改的那一边不会报错。
            本项目栽过十几次的就是这一类
-   } */
+   }
+
+   参考站左栏选中态是**左侧一道主色竖条 + 字变亮**，不是整行刷紫底。
+   刷紫底跟参考站差得最远，这里改成竖条。 */
 .side-nav a.active,
 .side-nav a.current {
-    background: var(--theme);
     color: #fff;
+    background: rgba(94, 114, 228, .16);
+    box-shadow: inset 3px 0 0 var(--theme);
 }
 
 .side-nav a.active:hover,
 .side-nav a.current:hover {
-    background: var(--theme);
     color: #fff;
+    background: rgba(94, 114, 228, .22);
 }
 
 /* 搜索按钮 */
@@ -422,12 +506,12 @@ body.has-cover .layout {
     width: 100%;
     padding: 11px;
     margin-bottom: 18px;
-    background: var(--card-bg);
+    background: var(--widget-bg);
     border: none;
     border-radius: var(--card-radius);
     box-shadow: var(--shadow-lg);
     color: var(--text-sub);
-    font-size: 14px;
+    font-size: 15px;
     font-family: inherit;
     cursor: pointer;
     text-decoration: none;
@@ -437,16 +521,18 @@ body.has-cover .layout {
 }
 
 .search-btn:hover {
-    color: var(--theme);
+    color: var(--theme-title);
     background: var(--card-bg-solid);
 }
 
-/* 站点概览：头像 + 签名 + 三个统计 */
+/* 站点概览：头像 + 签名 + 三个统计。
+   参考站的标签页是**主色实底**（这是它少数几处用主色做面块的地方），保留。 */
 .overview-tabs {
     display: flex;
     background: var(--theme);
     color: #fff;
-    font-size: 13.5px;
+    font-size: 14px;
+    font-weight: 600;
 }
 
 .overview-tabs span {
@@ -459,7 +545,7 @@ body.has-cover .layout {
 .overview-tabs span.on { background: rgba(255, 255, 255, .18); }
 
 .overview-body {
-    background: var(--card-bg);
+    background: var(--widget-bg);
     padding: 20px 16px 0;
     text-align: center;
     backdrop-filter: blur(10px);
@@ -476,19 +562,20 @@ body.has-cover .layout {
     display: flex;
     align-items: center;
     justify-content: center;
+    font-family: var(--font-head);
     font-size: 28px;
-    font-weight: 700;
+    font-weight: 400;
     box-shadow: 0 4px 14px rgba(var(--theme-rgb), .4);
 }
 
 .overview-name {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
     margin-bottom: 4px;
 }
 
 .overview-bio {
-    font-size: 12.5px;
+    font-size: 13.5px;
     color: var(--text-sub);
     margin-bottom: 16px;
 }
@@ -503,18 +590,18 @@ body.has-cover .layout {
     padding: 11px 4px;
     text-decoration: none;
     color: var(--text-sub);
-    font-size: 11.5px;
+    font-size: 12.5px;
     border-right: 1px solid var(--border);
     transition: color .2s;
 }
 
 .overview-stats a:last-child { border-right: none; }
-.overview-stats a:hover { color: var(--theme); }
+.overview-stats a:hover { color: var(--theme-title); }
 
 .overview-stats .num {
     display: block;
     font-size: 17px;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text);
     line-height: 1.3;
 }
@@ -529,8 +616,9 @@ body.has-cover .layout {
     border-radius: 50%;
     background: rgba(var(--theme-rgb), .9);
     color: #fff;
+    font-family: var(--font-head);
     font-size: 26px;
-    font-weight: 700;
+    font-weight: 400;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -543,13 +631,16 @@ body.has-cover .layout {
 
 .mascot:hover { transform: scale(1.08) rotate(-6deg); }
 
-/* ---------------------------------------------------------------- 文章卡片 */
+/* ---------------------------------------------------------------- 文章卡片
+
+   参考站卡片：rgba(66,66,66,.95) + 圆角 15px + 极淡阴影。
+   第一版是 .82 白底，在壁纸上像贴了张半透纸 —— 参考站是"几乎不透明的深色块"。 */
 
 .post-card {
     background: var(--card-bg);
     border-radius: var(--card-radius);
-    box-shadow: var(--shadow-lg);
-    padding: 20px 24px 16px;
+    box-shadow: var(--shadow);
+    padding: 20px 25px 16px;
     margin-bottom: 18px;
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -565,26 +656,38 @@ a.post-card {
 
 a.post-card:hover {
     transform: translateY(-3px);
-    box-shadow: 0 12px 32px rgba(50, 50, 93, .18);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .28);
 }
 
+/* 卡片标题：25px / 400 / 字距 .5px / rgb(137,152,235) —— 全部量来的 */
 .post-card .post-title {
     margin: 0 0 10px;
-    font-size: 19px;
-    font-weight: 600;
+    font-family: var(--font-head);
+    font-size: 25px;
+    font-weight: 400;
     text-align: center;
-    color: var(--theme);
+    color: var(--theme-title);
+    letter-spacing: .5px;
     line-height: 1.5;
 }
 
 .post-card .post-title.plain { text-align: left; }
+
+/* 摘要：参考站 19.2px / 300 —— 细体，这是它"好看"的很大一部分来源 */
+.post-excerpt {
+    font-size: 19.2px;
+    font-weight: 300;
+    line-height: 1.7;
+    color: var(--text);
+    margin: 0 0 12px;
+}
 
 .post-meta {
     display: flex;
     justify-content: center;
     flex-wrap: wrap;
     gap: 4px 16px;
-    font-size: 12.5px;
+    font-size: 14.5px;
     color: var(--text-sub);
     margin-bottom: 10px;
 }
@@ -596,39 +699,42 @@ a.post-card:hover {
     align-items: center;
     gap: 7px;
     flex-wrap: wrap;
-    font-size: 12px;
+    font-size: 14px;
     padding-top: 10px;
     border-top: 1px solid var(--border);
     color: var(--text-sub);
 }
 
+/* 小标签：参考站 rgba(42,45,66) 实底 + 14px/600 + 4px 圆角，
+   不是"主色 .12 透明底 + 主色字"。 */
 .tag {
-    background: rgba(var(--theme-rgb), .12);
-    color: var(--theme);
-    padding: 2px 11px;
-    border-radius: 20px;
-    font-size: 11.5px;
+    background: var(--tile-bg);
+    color: var(--text);
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 600;
     text-decoration: none;
 }
 
-a.tag:hover { background: rgba(var(--theme-rgb), .22); }
+a.tag:hover { background: rgba(var(--theme-rgb), .35); color: #fff; }
 
-/* 分组标题：浮在壁纸上的白色文字读不清，所以给它一个半透明深色底。
-   {意图：这个标题不在卡片里，直接压在壁纸上；纯白字在浅色区域会看不见} */
+/* 分组标题：参考站的二级标题就是**白字正文**，没有胶囊底。
+   第一版我给它加了个半透明黑胶囊（怕白字看不清），结果跟参考站完全是两种东西。
+   现在改成白字 + 很淡的投影，靠壁纸暗部兜住可读性。 */
 .section-title {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 13.5px;
-    font-weight: 600;
+    font-family: var(--font-head);
+    font-size: 25px;
+    font-weight: 400;
     color: #fff;
-    background: rgba(0, 0, 0, .38);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    padding: 5px 15px;
-    border-radius: 20px;
-    margin: 24px 0 12px;
-    text-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    margin: 24px 0 16px;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, .55);
 }
 
 /* 文章标题下方的标签行不需要分隔线 —— 它在 .article-header 里，
@@ -636,6 +742,7 @@ a.tag:hover { background: rgba(var(--theme-rgb), .22); }
 .article-header .post-tags {
     border-top: none;
     padding-top: 4px;
+    justify-content: center;
 }
 
 /* ---------------------------------------------------------------- 文章页正文 */
@@ -648,54 +755,59 @@ a.tag:hover { background: rgba(var(--theme-rgb), .22); }
 }
 
 .article-header .article-title {
+    font-family: var(--font-head);
     font-size: 25px;
-    font-weight: 700;
+    font-weight: 400;
     margin: 0 0 10px;
-    color: var(--theme);
-    line-height: 1.4;
+    color: var(--theme-title);
+    letter-spacing: .5px;
+    line-height: 1.5;
 }
 
-.article-body { font-size: 15px; }
+.article-body { font-size: 16px; }
 
 .article-body h2 {
-    font-size: 19px;
-    font-weight: 600;
+    font-family: var(--font-head);
+    font-size: 25px;
+    font-weight: 400;
     margin: 32px 0 12px;
     padding-left: 12px;
     border-left: 4px solid var(--theme);
     line-height: 1.45;
+    color: var(--text);
 }
 
 .article-body h3 {
-    font-size: 16px;
+    font-family: var(--font-head);
+    font-size: 19.2px;
     font-weight: 600;
     margin: 24px 0 9px;
 }
 
 .article-body p { margin: 0 0 15px; }
 
-.article-body a { color: var(--theme); text-decoration: none; }
+.article-body a { color: var(--theme-title); text-decoration: none; }
 .article-body a:hover { text-decoration: underline; }
 
 .article-body ul, .article-body ol { padding-left: 23px; margin: 0 0 15px; }
 .article-body li { margin-bottom: 6px; }
 
 .article-body code {
-    font-family: "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: .88em;
-    background: rgba(var(--theme-rgb), .1);
-    color: var(--theme);
+    background: rgba(var(--theme-rgb), .18);
+    color: var(--theme-title);
     padding: 2px 6px;
-    border-radius: 5px;
+    border-radius: 4px;
 }
 
 .article-body pre {
-    background: #23233a;
+    background: rgb(39, 42, 58);
     color: #e6e8f0;
     padding: 16px 18px;
     border-radius: 10px;
     overflow-x: auto;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.65;
     margin: 0 0 16px;
 }
@@ -711,7 +823,7 @@ a.tag:hover { background: rgba(var(--theme-rgb), .22); }
     margin: 0 0 16px;
     padding: 12px 18px;
     border-left: 4px solid var(--theme);
-    background: rgba(var(--theme-rgb), .08);
+    background: rgba(var(--theme-rgb), .1);
     border-radius: 0 8px 8px 0;
     color: var(--text-sub);
 }
@@ -722,7 +834,7 @@ a.tag:hover { background: rgba(var(--theme-rgb), .22); }
     width: 100%;
     border-collapse: collapse;
     margin: 0 0 16px;
-    font-size: 13.5px;
+    font-size: 14.5px;
 }
 
 .article-body th, .article-body td {
@@ -732,7 +844,7 @@ a.tag:hover { background: rgba(var(--theme-rgb), .22); }
 }
 
 .article-body th {
-    background: rgba(var(--theme-rgb), .09);
+    background: rgba(var(--theme-rgb), .14);
     font-weight: 600;
 }
 
@@ -744,14 +856,20 @@ a.tag:hover { background: rgba(var(--theme-rgb), .22); }
     margin: 0 auto 16px;
 }
 
-/* ---------------------------------------------------------------- 页脚 */
+/* ---------------------------------------------------------------- 页脚
+
+   参考站：底色 rgba(66,66,66,.9)，整块 opacity .6 —— 是"淡出"的，
+   不是刷一层更浅的底色。这里照做。 */
 
 .footer {
     text-align: center;
-    padding: 14px 18px 34px;
-    color: rgba(255, 255, 255, .95);
-    font-size: 12.5px;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+    padding: 25px 20px;
+    color: #fff;
+    background: var(--widget-bg);
+    font-size: 14px;
+    line-height: 1.8;
+    opacity: var(--footer-opacity);
+    text-shadow: none;
 }
 
 .footer a { color: #fff; }
@@ -781,11 +899,13 @@ a.tag:hover { background: rgba(var(--theme-rgb), .22); }
 }
 
 @media (max-width: 560px) {
+    :root { --hero-size: 34px; }
     .navbar { padding: 0 10px; }
     .navbar .brand .name { display: none; }
-    .navbar .nav-links a { padding: 6px 8px; font-size: 12.5px; }
+    .navbar .nav-links a { padding: 12px 10px; font-size: 14px; }
     .post-card { padding: 16px 16px 13px; }
-    .post-card .post-title { font-size: 17px; }
+    .post-card .post-title { font-size: 20px; }
+    .post-excerpt { font-size: 16px; }
     .article-header .article-title { font-size: 20px; }
     .layout { padding-left: 12px; padding-right: 12px; }
 }

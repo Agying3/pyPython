@@ -9,13 +9,13 @@
 <script>
 /* 深色模式：首次跟随系统偏好，之后记住选择。
    必须在 <head> 里同步执行，否则会闪一下白底再变暗。 */
+/* 默认就是深色（参考站那套），浅色是可选分支。
+   所以这里挂的是 lightmode，不是 darkmode —— 改写逻辑时最容易漏的地方。 */
 (function () {
     var saved = null;
     try { saved = localStorage.getItem('pypy-theme'); } catch (e) {}
-    var preferDark = window.matchMedia &&
-                     window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (saved === 'dark' || (!saved && preferDark)) {
-        document.documentElement.classList.add('darkmode');
+    if (saved === 'light') {
+        document.documentElement.classList.add('lightmode');
     }
 })();
 </script>
@@ -107,19 +107,20 @@
 
     <main class="content">
         <div class="post-card">
-            <h2 class="post-title plain" style="text-align:center;">
+            <h2 class="post-title plain" style="text-align:center;font-weight:600;">
                 欢迎来到 pyPython
             </h2>
-            <p style="text-align:center;color:var(--text-sub);margin:0;">
+            <p class="post-excerpt" style="text-align:center;margin:0;">
                 一门用纯 Python 写的解释器，故意比 CPython 慢两个数量级。<br>
                 下面是这个项目里值得单独讲讲的几件事。
             </p>
         </div>
 
-        <h2 id="posts" class="section-title">📄 全部文章</h2>
+        <h2 id="posts" class="section-title">全部文章</h2>
 
         <a class="post-card" href="posts/why-slow.html">
             <h3 class="post-title">这门语言为什么这么慢</h3>
+            <p class="post-excerpt">实测比 CPython 慢 686 倍。这个数字是刻意做出来的，而且我把「没达标」的那条基线也画进了图里。</p>
             <div class="post-meta">
                 <span class="m">📅 2026-10-01</span>
                 <span class="m">📄 697 字</span>
@@ -129,6 +130,7 @@
         </a>
         <a class="post-card" href="posts/three-valued.html">
             <h3 class="post-title">我给了布尔值第三个状态</h3>
+            <p class="post-excerpt">TRUE、FALSE，还有未知。第三态不是「介于真假之间」，是信息缺失——消息发出去了，还没回。</p>
             <div class="post-meta">
                 <span class="m">📅 2026-10-01</span>
                 <span class="m">📄 1,003 字</span>
@@ -138,6 +140,7 @@
         </a>
         <a class="post-card" href="posts/blank-line.html">
             <h3 class="post-title">一个空行引发的血案</h3>
+            <p class="post-excerpt">赋值成功、不报错、没效果。这类 bug 最难查，因为你没法靠「跑起来没报错」判断对错。</p>
             <div class="post-meta">
                 <span class="m">📅 2026-10-01</span>
                 <span class="m">📄 1,025 字</span>
@@ -147,6 +150,7 @@
         </a>
         <a class="post-card" href="posts/no-matplotlib.html">
             <h3 class="post-title">为什么我坚持不用 matplotlib</h3>
+            <p class="post-excerpt">要画一张性能对比图。装个 matplotlib 只要一行命令，我选择了手写 300 行 SVG。</p>
             <div class="post-meta">
                 <span class="m">📅 2026-10-01</span>
                 <span class="m">📄 890 字</span>
@@ -174,10 +178,10 @@
 <script>
 document.getElementById('themeBtn').addEventListener('click', function () {
     var root = document.documentElement;
-    root.classList.toggle('darkmode');
+    root.classList.toggle('lightmode');
     try {
         localStorage.setItem('pypy-theme',
-            root.classList.contains('darkmode') ? 'dark' : 'light');
+            root.classList.contains('lightmode') ? 'light' : 'dark');
     } catch (e) {}
 });
 

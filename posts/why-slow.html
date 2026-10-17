@@ -9,13 +9,13 @@
 <script>
 /* 深色模式：首次跟随系统偏好，之后记住选择。
    必须在 <head> 里同步执行，否则会闪一下白底再变暗。 */
+/* 默认就是深色（参考站那套），浅色是可选分支。
+   所以这里挂的是 lightmode，不是 darkmode —— 改写逻辑时最容易漏的地方。 */
 (function () {
     var saved = null;
     try { saved = localStorage.getItem('pypy-theme'); } catch (e) {}
-    var preferDark = window.matchMedia &&
-                     window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (saved === 'dark' || (!saved && preferDark)) {
-        document.documentElement.classList.add('darkmode');
+    if (saved === 'light') {
+        document.documentElement.classList.add('lightmode');
     }
 })();
 </script>
@@ -278,10 +278,10 @@
 <script>
 document.getElementById('themeBtn').addEventListener('click', function () {
     var root = document.documentElement;
-    root.classList.toggle('darkmode');
+    root.classList.toggle('lightmode');
     try {
         localStorage.setItem('pypy-theme',
-            root.classList.contains('darkmode') ? 'dark' : 'light');
+            root.classList.contains('lightmode') ? 'light' : 'dark');
     } catch (e) {}
 });
 
