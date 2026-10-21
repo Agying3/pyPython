@@ -2,8 +2,8 @@
 """把 style.css 里的 token 钉死在参考站量到的值上，并且跑真实渲染复量。
 
 为什么要有第二个自检：tools/check_site.py 查的是"链接没断、选择器对得上"，
-它管不了"字色是不是 RGB(137,152,235)、卡片是不是 .95 不透明"。
-#46 那次就是：静态检查全绿，外观却和参考站是两套东西。
+它管不了"字色是不是 RGB(139,146,232)、卡片是不是 .8 半透明玻璃"。
+#48 那次就是：静态检查全绿，外观却和参考站是两套东西。
 
 两层：
   1. 静态层：读 styles.css 的声明，断言关键 token（能挡住手滑改回旧值）；
@@ -58,15 +58,19 @@ def main():
                                      "hy-tangmeiren.woff2")),
           "字体文件真的在 assets/fonts/ 里")
 
-    # 透明度三档
-    check("--card-bg: rgba(66, 66, 66, .95)" in code, "卡片底 .95（实测）")
-    check("--widget-bg: rgba(66, 66, 66, .9)" in code, "左栏面板底 .9（实测）")
-    check("--footer-opacity: .6" in code, "页脚整块 opacity .6（实测）")
-
-    # 字色
-    check("--theme-title: #8998eb" in code,
-          "标题紫 #8998eb = rgb(137,152,235)（实测）")
-    check("--text: rgb(238, 238, 238)" in code, "正文色 #eee（实测）")
+    # 参考站浅色玻璃：卡片 rgba(255,255,255,.8)，左栏同样是 .8
+    check("--glass-bg: rgba(255, 255, 255, .8)" in code,
+          "玻璃卡片底 .8（实测）")
+    check("--glass-edge: rgba(255, 255, 255, .5)" in code,
+          "玻璃上沿反光 .5（实测）")
+    check("--glass-line: rgba(0, 0, 0, .05)" in code,
+          "玻璃内描边 .05（实测）")
+    check("--shadow: 0 2px 4px rgba(0, 0, 0, .075)" in code,
+          "玻璃阴影 0 2px 4px .075（实测）")
+    check("--footer-opacity: 1" in code, "浅色默认页脚不再整体压暗")
+    check("--section-title: #2f3b52" in code,
+          "浅色分组标题用深墨色（否则白字压在浅壁纸上看不见）")
+    check("--section-title: #fff" in code, "深色分支分组标题仍是白字")
 
     # 导航：透明，不是主色层
     nav = re.search(r"\.navbar \{(.*?)\}", code, re.S)
@@ -121,10 +125,13 @@ def main():
             if (!e) return null; const c = getComputedStyle(e);
             return {family: c.fontFamily, size: c.fontSize, weight: c.fontWeight,
                     color: c.color, bg: c.backgroundColor, op: c.opacity,
-                    ls: c.letterSpacing, radius: c.borderRadius}; };
+                    ls: c.letterSpacing, radius: c.borderRadius,
+                    shadow: c.boxShadow, border: c.borderTopColor + ' / ' + c.borderTopWidth,
+                    backdrop: c.backdropFilter}; };
           return {title: g('.cover-title'), sub: g('.cover-sub'),
                   card: g('.post-card'), ptitle: g('.post-card .post-title'),
-                  tag: g('.tag'), nav: g('.navbar'), footer: g('.footer'),
+                  widget: g('.widget'), tag: g('.tag'), nav: g('.navbar'), footer: g('.footer'),
+                  section: g('.section-title'),
                   loaded: Array.from(document.fonts).map(f => f.family + ':' + f.status)};
         })()
         """)
@@ -147,18 +154,34 @@ def main():
                   got["title"]["ls"])
             check(norm(got["sub"]["color"] or "") is not None
                   or "-webkit-text-fill-color" , "副标题有字色")
-            check(got["card"]["bg"].startswith("rgba(66, 66, 66, 0.95)"),
-                  "卡片底实算 rgba(66,66,66,.95)", got["card"]["bg"])
-            check(norm(got["ptitle"]["color"]) == (137.0, 152.0, 235.0, 1.0),
-                  "卡片标题色实算 rgb(137,152,235)", got["ptitle"]["color"])
+            check(got["card"]["bg"] == "rgba(255, 255, 255, 0.8)",
+                  "卡片底实算 rgba(255,255,255,.8)", got["card"]["bg"])
+            check(got["card"]["radius"] == "15px", "玻璃卡片圆角 15px",
+                  got["card"]["radius"])
+            check("rgba(0, 0, 0, 0.075) 0px 2px 4px 0px" in got["card"]["shadow"],
+                  "卡片阴影实算 0 2px 4px .075", got["card"]["shadow"])
+            check("inset" in got["card"]["shadow"],
+                  "卡片带 inset 反光边", got["card"]["shadow"])
+            check("rgba(0, 0, 0, 0.05)" in got["card"]["border"],
+                  "卡片有 .05 内描边", got["card"]["border"])
+            check(got["card"]["backdrop"] == "none",
+                  "参考站卡片不使用 backdrop-filter", got["card"]["backdrop"])
+            check(got["widget"]["bg"] == "rgba(255, 255, 255, 0.8)",
+                  "左栏同款半透明玻璃", got["widget"]["bg"])
+            check(norm(got["ptitle"]["color"]) == (139.0, 146.0, 232.0, 1.0),
+                  "卡片标题色实算 rgb(139,146,232)", got["ptitle"]["color"])
             check(got["ptitle"]["size"] == "25px", "卡片标题 25px",
                   got["ptitle"]["size"])
             check(got["tag"]["radius"] == "4px", "小标签圆角 4px",
                   got["tag"]["radius"])
             check(norm(got["nav"]["bg"]) == (0.0, 0.0, 0.0, 0.0),
                   "导航实算透明", got["nav"]["bg"])
-            check(abs(float(got["footer"]["op"]) - 0.6) < 0.01,
-                  "页脚实算 opacity .6", got["footer"]["op"])
+            check(abs(float(got["footer"]["op"]) - 1.0) < 0.01,
+                  "浅色页脚实算 opacity 1", got["footer"]["op"])
+            # #49：白字压在浅壁纸上看不见 —— 用亮度差当可读性判据
+            sec = norm(got["section"]["color"] or "")
+            check(sec is not None and sec[0] + sec[1] + sec[2] < 300,
+                  "浅色分组标题是深色（亮度 < 300）", str(got["section"]["color"]))
     except Exception as exc:
         check(False, "渲染层探针跑通", repr(exc)[:200])
 

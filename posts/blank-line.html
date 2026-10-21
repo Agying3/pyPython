@@ -9,13 +9,15 @@
 <script>
 /* 深色模式：首次跟随系统偏好，之后记住选择。
    必须在 <head> 里同步执行，否则会闪一下白底再变暗。 */
-/* 默认就是深色（参考站那套），浅色是可选分支。
-   所以这里挂的是 lightmode，不是 darkmode —— 改写逻辑时最容易漏的地方。 */
+/* 默认是浅色玻璃（参考站实际渲染的那套），深色是可选分支。
+   所以这里挂的是 darkmode，不是 lightmode —— 翻转默认值时最容易漏的地方。 */
 (function () {
     var saved = null;
     try { saved = localStorage.getItem('pypy-theme'); } catch (e) {}
-    if (saved === 'light') {
-        document.documentElement.classList.add('lightmode');
+    var preferDark = window.matchMedia &&
+                     window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && preferDark)) {
+        document.documentElement.classList.add('darkmode');
     }
 })();
 </script>
@@ -308,10 +310,10 @@ $(["a,b", "c"])       → 被切成 3 个元素</code></pre>
 <script>
 document.getElementById('themeBtn').addEventListener('click', function () {
     var root = document.documentElement;
-    root.classList.toggle('lightmode');
+    root.classList.toggle('darkmode');
     try {
         localStorage.setItem('pypy-theme',
-            root.classList.contains('lightmode') ? 'light' : 'dark');
+            root.classList.contains('darkmode') ? 'dark' : 'light');
     } catch (e) {}
 });
 

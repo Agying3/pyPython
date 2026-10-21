@@ -43,14 +43,15 @@
                  （等宽实测：汉字墨迹 38px ÷ 0.8614em = 44.1px）
      导航        底色 rgba(0,0,0,0) 全透明，没有毛玻璃，没有下边框
                  链接 rgba(255,255,255,.95)，16px；品牌 19.2px / 600
-     卡片        底色 rgba(66,66,66,.95) —— **不是 .82**
-                 圆角 15px，阴影 0 2px 4px rgba(0,0,0,.075)
-     左栏面板    底色 rgba(66,66,66,.9)，比卡片再透一档
-     卡片标题    rgb(137,152,235)，25px，400，字距 .5px
-     摘要        19.2px / 300，正文色 rgb(238,238,238)
-     小标签      rgba(42,45,66) 底，14px / 600
+     卡片        底色 rgba(255,255,255,.8) —— 不是 .82，也不是深灰
+                  1px 反光边 rgba(255,255,255,.5) + 内侧 rgba(0,0,0,.05)
+                  圆角 15px，阴影 0 2px 4px rgba(0,0,0,.075)，无 backdrop-filter
+     左栏面板    与卡片同规格（.8 白 + 同样阴影）
+     卡片标题    rgb(139,146,232)，25px，400，字距 .5px
+     摘要        19.2px / 300
+     小标签      rgba(94,114,228,.12) 底，14px / 600
      按钮        14px / 600，字距 .35px，圆角 4px，底 #5e72e4
-     页脚        底色 rgba(66,66,66,.9) 且整块 opacity .6
+     页脚        .8 白玻璃 + 淡阴影 + 15px 圆角
      首屏副标题  左靛蓝 → 右珊瑚色的横向渐变，不是纯白
    ========================================================================== */
 
@@ -74,44 +75,53 @@
        所以按字形实测补到 44px */
     --hero-size: 44px;
 
+    /* —— 玻璃质感：参考站浅色分支实测 --------------------------------------------------
+       卡片底色 rgba(255,255,255,.8)、内芯 rgb(255,255,255)、
+       1px 反光边、15px 圆角、阴影只有 0 2px 4px rgba(0,0,0,.075)。
+       这几样合起来才是"玻璃卡片"；底色对、阴影抄成 24px 大黑晕，就成了塑料板。 */
+    --glass-bg: rgba(255, 255, 255, .8);       /* 卡片：量到 .8 */
+    --glass-core: #ffffff;                     /* 卡片内芯（参考站 card-body 是实白） */
+    --glass-edge: rgba(255, 255, 255, .5);     /* 玻璃反光边 */
+    --glass-line: rgba(0, 0, 0, .05);          /* 内侧极淡描边，参考站的 1px border */
+    --glass-blur: 0px;                         /* 参考站没有 backdrop-filter */
+    --theme-title: #8b92e8;                    /* 浅色底上的标题紫（按截图取样） */
+
     --card-radius: 15px;
-    --border: rgba(255, 255, 255, .08);
+    --border: rgba(0, 0, 0, .06);
     --nav-h: 52px;
     --side-w: 300px;
-    --shadow: 0 .125rem .25rem rgba(0, 0, 0, .075);
-    --shadow-lg: 0 8px 24px rgba(50, 50, 93, .12), 0 3px 10px rgba(0, 0, 0, .06);
+    --shadow: 0 2px 4px rgba(0, 0, 0, .075);   /* 参考站唯一的阴影，很轻 */
+    --shadow-lg: 0 2px 4px rgba(0, 0, 0, .075);
 
-    /* —— 透明度三档。参考站是 dark-first，我把两套都对齐它的 dark 值 */
-    --card-bg: rgba(66, 66, 66, .95);          /* 卡片：量到 .95 */
-    --card-bg-solid: #424242;
-    --widget-bg: rgba(66, 66, 66, .9);         /* 左栏面板：量到 .9 */
-    --tile-bg: rgb(42, 45, 66);                /* 小标签：量到 rgb(42,45,66) */
-    --bg-body: rgb(34, 35, 42);                /* 页面兜底底色 */
-    --text: rgb(238, 238, 238);                /* 正文：量到 #eee */
-    --text-sub: rgba(238, 238, 238, .62);
+    --bg-body: #f4f6f9;
+    --text: #364863;                           /* 浅色底上的正文，参考站 --text */
+    --text-sub: rgba(54, 72, 99, .62);
     --nav-text: rgba(255, 255, 255, .95);
-    --footer-opacity: .6;                      /* 页脚整块 .6 */
+    --footer-opacity: 1;
 
-    /* 深／浅两套只换颜色，不换层级。参考站是暗底优先（它 dark 模式的
-       卡片 rgba(66,66,66,.95) 才是站主真正在用的那套观感），
-       所以本站**默认就走 dark 那套**，浅色是可选项。
-       #47「默认配色选错了分支」：无头浏览器不跟随系统深色偏好，
-       于是实算出来是浅色 .95 白底，跟参考站量到的值对不上 —— 断言当场变红。
-       修法不是改断言，是把它设成默认。 */
+    /* 分组标题压在半透明壁纸上，两种模式各一套（#49） */
+    --section-title: #2f3b52;
+    --section-title-shadow: 0 1px 0 rgba(255, 255, 255, .85),
+                            0 2px 12px rgba(255, 255, 255, .55);
 }
 
-html.lightmode {
-    --card-bg: rgba(255, 255, 255, .95);
-    --card-bg-solid: #ffffff;
-    --widget-bg: rgba(255, 255, 255, .9);
-    --tile-bg: rgba(94, 114, 228, .12);
-    --bg-body: #f4f6f9;
-    --text: #2d3748;
-    --text-sub: rgba(45, 55, 72, .62);
-    --theme-title: #5e72e4;
-    --border: rgba(0, 0, 0, .06);
-    --shadow: 0 .125rem .25rem rgba(0, 0, 0, .075);
-    --shadow-lg: 0 8px 24px rgba(50, 50, 93, .12), 0 3px 10px rgba(0, 0, 0, .06);
+/* 深色分支：保留（参考站也有一套），但**不是默认** —— 默认是上面那套浅色玻璃 */
+html.darkmode {
+    --glass-bg: rgba(66, 66, 66, .95);
+    --glass-core: rgb(39, 42, 58);
+    --glass-edge: rgba(255, 255, 255, .08);
+    --glass-line: rgba(255, 255, 255, .06);
+    --theme-title: #8998eb;
+    --bg-body: rgb(34, 35, 42);
+    --text: rgb(238, 238, 238);
+    --text-sub: rgba(238, 238, 238, .62);
+    --border: rgba(255, 255, 255, .08);
+    --tile-bg: rgb(42, 45, 66);
+    --shadow: 0 2px 4px rgba(0, 0, 0, .35);
+    --shadow-lg: 0 2px 4px rgba(0, 0, 0, .35);
+    --footer-opacity: .6;
+    --section-title: #fff;
+    --section-title-shadow: 0 2px 10px rgba(0, 0, 0, .55);
 }
 
 /* ---------------------------------------------------------------- 字体
@@ -163,8 +173,8 @@ body::before {
     transition: opacity .5s ease, filter .5s ease;
 }
 
-/* 深色压暗只在浅色模式下生效；默认本来就是暗的，不用再压 */
-html.lightmode body::before {
+/* 深色模式下把壁纸压暗（参考站 dark 分支的做法），浅色模式保持原亮度 */
+html.darkmode body::before {
     opacity: .5;
     filter: brightness(.62);
 }
@@ -286,10 +296,24 @@ body > .top-shade {
    不再刷主色紫。 */
 body.has-cover .navbar.scrolled,
 body:not(.has-cover) .navbar {
-    background: rgba(66, 66, 66, .9);
-    border-bottom-color: rgba(255, 255, 255, .08);
+    background: rgba(255, 255, 255, .72);
+    border-bottom-color: var(--glass-line);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .5) inset,
+                0 2px 4px rgba(0, 0, 0, .06);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
+}
+
+/* 实色导航时字要换成深色，否则白字压白玻璃看不清 */
+body.has-cover .navbar.scrolled .brand,
+body.has-cover .navbar.scrolled .nav-links a,
+body:not(.has-cover) .navbar .brand,
+body:not(.has-cover) .navbar .nav-links a { color: var(--text); }
+
+body:not(.has-cover) .navbar .theme-toggle,
+body.has-cover .navbar.scrolled .theme-toggle {
+    background: rgba(0, 0, 0, .06);
+    color: var(--text);
 }
 
 /* ---------------------------------------------------------------- 封面
@@ -400,21 +424,57 @@ body.has-cover .layout {
 
 .content { flex: 1; min-width: 0; }
 
+/* ---------------------------------------------------------------- 玻璃
+
+   #48「只抄了底色和阴影，玻璃感出不来」
+   {
+     曾出现：把卡片改成 rgba(255,255,255,.8)、阴影改成 0 8px 24px 的紫灰大晕，
+             看着还像"磨砂塑料板"，不是参考站那种能透出壁纸的玻璃片
+     根因：玻璃 = 半透明底 + **1px 反光边** + 极淡散射阴影 三件套。
+           少了反光边，边缘糊在壁纸上，就没有"玻璃"的切割感；
+           阴影给大了，又变成浮在空中的塑料板
+     修法：统一 --glass-* 四个变量，卡片/左栏/页脚/搜索条共用同一个配方
+     教训：**质感是几个属性的组合，单独调某一个永远调不出来。**
+           量的时候也要连着量（tools/probe_shadow.py 量边、阴影抖动、圆角）
+   }
+
+   参考站实测（首页卡片 article.post.card）：
+     background   rgba(255,255,255,.8)
+     border       1px rgba(0,0,0,.05)  ← Argon 的内描边
+     box-shadow   0 2px 4px rgba(0,0,0,.075)
+     border-radius 15px
+     backdrop-filter  none  ← 它靠 .8 的白糊住壁纸，不靠模糊
+   第四样（反光边）是我在截图边缘取样看到的：卡片上沿比壁纸亮一档，
+   连续 1~2px —— 用 inset 0 1px 0 rgba(255,255,255,.5) 复刻。 */
+
+.glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-line);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow-lg),
+                inset 0 1px 0 var(--glass-edge);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
 /* ---------------------------------------------------------------- 左栏组件 */
 
 .widget {
     border-radius: var(--card-radius);
     overflow: hidden;
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-lg),
+                inset 0 1px 0 var(--glass-edge);
     margin-bottom: 18px;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-line);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 /* 参考站左栏没有"主色标题条"，标题是面板里的一行字，底色跟着面板走。
    第一版我加了整条主色 —— 那是最扎眼的一处不像。 */
 .widget-head {
-    background: var(--widget-bg);
+    background: var(--glass-bg);
     color: var(--text);
     font-size: 15px;
     font-weight: 600;
@@ -427,7 +487,7 @@ body.has-cover .layout {
 }
 
 .widget-body {
-    background: var(--widget-bg);
+    background: var(--glass-bg);
     padding: 14px 16px;
     font-size: 14px;
     line-height: 1.7;
@@ -441,13 +501,15 @@ body.has-cover .layout {
 
 /* 左栏导航列表 */
 .side-nav {
-    background: var(--widget-bg);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-line);
     border-radius: var(--card-radius);
     overflow: hidden;
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-lg),
+                inset 0 1px 0 var(--glass-edge);
     margin-bottom: 18px;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 .side-nav a {
@@ -506,23 +568,24 @@ body.has-cover .layout {
     width: 100%;
     padding: 11px;
     margin-bottom: 18px;
-    background: var(--widget-bg);
-    border: none;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-line);
     border-radius: var(--card-radius);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-lg),
+                inset 0 1px 0 var(--glass-edge);
     color: var(--text-sub);
     font-size: 15px;
     font-family: inherit;
     cursor: pointer;
     text-decoration: none;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     transition: color .2s, background .2s;
 }
 
 .search-btn:hover {
     color: var(--theme-title);
-    background: var(--card-bg-solid);
+    background: rgba(255, 255, 255, .55);
 }
 
 /* 站点概览：头像 + 签名 + 三个统计。
@@ -545,11 +608,11 @@ body.has-cover .layout {
 .overview-tabs span.on { background: rgba(255, 255, 255, .18); }
 
 .overview-body {
-    background: var(--widget-bg);
+    background: var(--glass-bg);
     padding: 20px 16px 0;
     text-align: center;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 .avatar {
@@ -637,13 +700,14 @@ body.has-cover .layout {
    第一版是 .82 白底，在壁纸上像贴了张半透纸 —— 参考站是"几乎不透明的深色块"。 */
 
 .post-card {
-    background: var(--card-bg);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-line);
     border-radius: var(--card-radius);
-    box-shadow: var(--shadow);
-    padding: 20px 25px 16px;
-    margin-bottom: 18px;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    box-shadow: var(--shadow), inset 0 1px 0 var(--glass-edge);
+    padding: 24px 25px 20px;
+    margin-bottom: 20px;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     transition: box-shadow .3s ease, transform .3s ease;
 }
 
@@ -655,8 +719,9 @@ a.post-card {
 }
 
 a.post-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, .28);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .10),
+                inset 0 1px 0 var(--glass-edge);
 }
 
 /* 卡片标题：25px / 400 / 字距 .5px / rgb(137,152,235) —— 全部量来的 */
@@ -708,7 +773,7 @@ a.post-card:hover {
 /* 小标签：参考站 rgba(42,45,66) 实底 + 14px/600 + 4px 圆角，
    不是"主色 .12 透明底 + 主色字"。 */
 .tag {
-    background: var(--tile-bg);
+    background: rgba(94, 114, 228, .12);
     color: var(--text);
     padding: 5px 10px;
     border-radius: 4px;
@@ -721,7 +786,17 @@ a.tag:hover { background: rgba(var(--theme-rgb), .35); color: #fff; }
 
 /* 分组标题：参考站的二级标题就是**白字正文**，没有胶囊底。
    第一版我给它加了个半透明黑胶囊（怕白字看不清），结果跟参考站完全是两种东西。
-   现在改成白字 + 很淡的投影，靠壁纸暗部兜住可读性。 */
+
+   #49「浅色壁纸下白色分组标题几乎看不见」
+   {
+     曾出现：默认切回浅色玻璃后，"全部文章"这行白字压在这张偏亮的粉砖壁纸上，
+             对比度低到像水印
+     根因：颜色写死 #fff 是按"壁纸是暗的"假设调的。壁纸换了、模式换了，
+           这个假设就不成立，而写死的颜色不会跟着变
+     修法：抽成 --section-title 变量，浅色/深色各一套；浅色用深墨色 + 浅色描边，
+           深色才用白字 + 深色投影
+     教训：**凡是"为了在背景上读得清"而定的颜色，都必须随主题走。**
+   } */
 .section-title {
     display: flex;
     align-items: center;
@@ -729,12 +804,12 @@ a.tag:hover { background: rgba(var(--theme-rgb), .35); color: #fff; }
     font-family: var(--font-head);
     font-size: 25px;
     font-weight: 400;
-    color: #fff;
+    color: var(--section-title);
     background: none;
     padding: 0;
     border-radius: 0;
     margin: 24px 0 16px;
-    text-shadow: 0 2px 10px rgba(0, 0, 0, .55);
+    text-shadow: var(--section-title-shadow);
 }
 
 /* 文章标题下方的标签行不需要分隔线 —— 它在 .article-header 里，
@@ -864,15 +939,16 @@ a.tag:hover { background: rgba(var(--theme-rgb), .35); color: #fff; }
 .footer {
     text-align: center;
     padding: 25px 20px;
-    color: #fff;
-    background: var(--widget-bg);
+    color: var(--text);
+    background: var(--glass-bg);
+    border-top: 1px solid var(--glass-line);
     font-size: 14px;
     line-height: 1.8;
     opacity: var(--footer-opacity);
     text-shadow: none;
 }
 
-.footer a { color: #fff; }
+.footer a { color: var(--theme-title); }
 .footer .sep { opacity: .55; margin: 0 7px; }
 
 /* ---------------------------------------------------------------- 响应式
