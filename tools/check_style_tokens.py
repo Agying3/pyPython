@@ -72,6 +72,28 @@ def main():
           "浅色分组标题用深墨色（否则白字压在浅壁纸上看不见）")
     check("--section-title: #fff" in code, "深色分支分组标题仍是白字")
 
+    # 浮起阴影用 Argon 的 .shadow 档（#51）
+    check("0 15px 35px rgba(50, 50, 93, .10)" in code,
+          "卡片用 Argon 浮起阴影档（紫灰 0 15px 35px）")
+    check("0 5px 15px rgba(0, 0, 0, .07)" in code,
+          "浮起阴影含第二层 0 5px 15px")
+    check(".post-card {" in code and "--shadow-lift" in code,
+          "卡片真的用了浮起档变量")
+
+    # 左下角装饰球必须不存在（#50）
+    check("mascot" not in code and "mascot" not in src,
+          "没有左下角头像球（mascot 已删除）")
+
+    # 滚动浮现（#52）
+    layout = open(os.path.join(ROOT, "parts", "layout.html"),
+                  encoding="utf-8").read()
+    check("IntersectionObserver" in layout,
+          "布局里有 IntersectionObserver 滚动浮现")
+    check("reveal-ready" in layout and "is-in" in code,
+          "浮现动画的 class 约定：JS 加 reveal-ready / is-in，CSS 有对应规则")
+    check("prefers-reduced-motion" in layout and "prefers-reduced-motion" in code,
+          "浮现动画在减少动态偏好下关闭")
+
     # 导航：透明，不是主色层
     nav = re.search(r"\.navbar \{(.*?)\}", code, re.S)
     check(nav and "background: transparent" in nav.group(1),
@@ -158,8 +180,8 @@ def main():
                   "卡片底实算 rgba(255,255,255,.8)", got["card"]["bg"])
             check(got["card"]["radius"] == "15px", "玻璃卡片圆角 15px",
                   got["card"]["radius"])
-            check("rgba(0, 0, 0, 0.075) 0px 2px 4px 0px" in got["card"]["shadow"],
-                  "卡片阴影实算 0 2px 4px .075", got["card"]["shadow"])
+            check("rgba(50, 50, 93, 0.1) 0px 15px 35px 0px" in got["card"]["shadow"],
+                  "卡片阴影实算 Argon 浮起档 0 15px 35px", got["card"]["shadow"])
             check("inset" in got["card"]["shadow"],
                   "卡片带 inset 反光边", got["card"]["shadow"])
             check("rgba(0, 0, 0, 0.05)" in got["card"]["border"],

@@ -90,8 +90,15 @@
     --border: rgba(0, 0, 0, .06);
     --nav-h: 52px;
     --side-w: 300px;
-    --shadow: 0 2px 4px rgba(0, 0, 0, .075);   /* 参考站唯一的阴影，很轻 */
+    --shadow: 0 2px 4px rgba(0, 0, 0, .075);   /* 参考站卡片上那层最小档 */
     --shadow-lg: 0 2px 4px rgba(0, 0, 0, .075);
+    /* 浮起档：Argon .shadow（从 argon.min.css 数出来的原值，紫灰色而非纯黑） */
+    --shadow-lift: 0 15px 35px rgba(50, 50, 93, .10),
+                   0 5px 15px rgba(0, 0, 0, .07),
+                   0 1px 2px rgba(0, 0, 0, .06);
+    --shadow-lift-hover: 0 22px 45px rgba(50, 50, 93, .14),
+                         0 8px 20px rgba(0, 0, 0, .09),
+                         0 1px 2px rgba(0, 0, 0, .06);
 
     --bg-body: #f4f6f9;
     --text: #364863;                           /* 浅色底上的正文，参考站 --text */
@@ -291,9 +298,9 @@ body > .top-shade {
     transform: rotate(20deg);
 }
 
-/* 滑过封面之后才给导航上底色 —— 参考站用的是 headroom + 滚动变实，
-   这里保留原行为，但颜色改成参考站实色那条 rgba(66,66,66,.9)，
-   不再刷主色紫。 */
+/* 滑过封面之后才给导航上底色 —— 参考站用的是 headroom + 滚动变实。
+   浅色用白玻璃，深色必须换成暗玻璃：同一块 .72 白在暗底上会变成一片脏灰，
+   跟页面其他卡片不属于同一个世界（#53）。 */
 body.has-cover .navbar.scrolled,
 body:not(.has-cover) .navbar {
     background: rgba(255, 255, 255, .72);
@@ -302,6 +309,14 @@ body:not(.has-cover) .navbar {
                 0 2px 4px rgba(0, 0, 0, .06);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
+}
+
+html.darkmode body.has-cover .navbar.scrolled,
+html.darkmode body:not(.has-cover) .navbar {
+    background: rgba(34, 35, 42, .78);
+    border-bottom-color: rgba(255, 255, 255, .07);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset,
+                0 2px 10px rgba(0, 0, 0, .35);
 }
 
 /* 实色导航时字要换成深色，否则白字压白玻璃看不清 */
@@ -451,7 +466,7 @@ body.has-cover .layout {
     background: var(--glass-bg);
     border: 1px solid var(--glass-line);
     border-radius: var(--card-radius);
-    box-shadow: var(--shadow-lg),
+    box-shadow: var(--shadow-lift),
                 inset 0 1px 0 var(--glass-edge);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -462,7 +477,7 @@ body.has-cover .layout {
 .widget {
     border-radius: var(--card-radius);
     overflow: hidden;
-    box-shadow: var(--shadow-lg),
+    box-shadow: var(--shadow-lift),
                 inset 0 1px 0 var(--glass-edge);
     margin-bottom: 18px;
     background: var(--glass-bg);
@@ -505,7 +520,7 @@ body.has-cover .layout {
     border: 1px solid var(--glass-line);
     border-radius: var(--card-radius);
     overflow: hidden;
-    box-shadow: var(--shadow-lg),
+    box-shadow: var(--shadow-lift),
                 inset 0 1px 0 var(--glass-edge);
     margin-bottom: 18px;
     backdrop-filter: none;
@@ -571,7 +586,7 @@ body.has-cover .layout {
     background: var(--glass-bg);
     border: 1px solid var(--glass-line);
     border-radius: var(--card-radius);
-    box-shadow: var(--shadow-lg),
+    box-shadow: var(--shadow-lift),
                 inset 0 1px 0 var(--glass-edge);
     color: var(--text-sub);
     font-size: 15px;
@@ -669,41 +684,44 @@ body.has-cover .layout {
     line-height: 1.3;
 }
 
-/* 左下角吉祥物（参考图里有个小人；这里用项目的字「炑」） */
-.mascot {
-    position: fixed;
-    left: 16px;
-    bottom: 16px;
-    width: 54px;
-    height: 54px;
-    border-radius: 50%;
-    background: rgba(var(--theme-rgb), .9);
-    color: #fff;
-    font-family: var(--font-head);
-    font-size: 26px;
-    font-weight: 400;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: var(--shadow-lg);
-    cursor: default;
-    z-index: 90;
-    backdrop-filter: blur(6px);
-    transition: transform .3s;
-}
-
-.mascot:hover { transform: scale(1.08) rotate(-6deg); }
+/* 左下角吉祥物已移除。
+   #50「左下角怎么又有个人头像」
+   {
+     曾出现：页面左下角常驻一个 54px 的紫色圆形「炑」字球
+     根因：我照参考图"角落里有个小人"的印象加了一个 fixed 装饰块，
+           但参考站那个位置是**Live2D 看板娘**（它加载了 pio.js / pixi.min.js），
+           不是头像球。我抄了"这里有个东西"这个结论，抄错了东西本身
+     修法：整块删掉。装饰物不该凭印象加 —— 要加就得是参考站真有的那个
+     教训：**"参考图那里有个东西"不等于"那里该放一个我造的东西"。**
+   } */
 
 /* ---------------------------------------------------------------- 文章卡片
 
-   参考站卡片：rgba(66,66,66,.95) + 圆角 15px + 极淡阴影。
-   第一版是 .82 白底，在壁纸上像贴了张半透纸 —— 参考站是"几乎不透明的深色块"。 */
+   阴影用的是 Argon 设计系统的**浮起档**（.shadow）：
+       0 15px 35px rgba(50,50,93,.1), 0 5px 15px rgba(0,0,0,.07)
+   这三层是紫灰色（50,50,93），不是纯黑 —— 玻璃浮在壁纸上时，
+   投下的是一层带环境色的柔和影子，纯黑会显脏。
+
+   #51「阴影还是没改」
+   {
+     曾出现：我抄了参考站卡片上的 .shadow-sm（0 2px 4px .075），
+             结果卡片像贴在壁纸上，没有"玻璃片悬空"的层次
+     根因：.shadow-sm 是 Bootstrap 的**最小档**，语义是"轻微边界"，
+           不是"浮起"。Argon 把浮起语义放在 .shadow（0 15px 35px 紫灰），
+           参考站首页卡片同时带 shadow-sm，我用 computed 只读到一个属性，
+           就以为全套只有这一层
+     修法：主阴影换成 Argon .shadow 档，另叠 0 1px 2px 做贴地接触影
+     教训：**computed style 只告诉你"这一个元素算了什么"，
+           不告诉你"这套设计语言里本来该用哪一档"。** 要去看主题源文件
+           （tools/probe_shadows.py 抓的是 CSS 规则全集，
+             跨域读不到时就直接下 argon.min.css 数偏移量）
+   } */
 
 .post-card {
     background: var(--glass-bg);
     border: 1px solid var(--glass-line);
     border-radius: var(--card-radius);
-    box-shadow: var(--shadow), inset 0 1px 0 var(--glass-edge);
+    box-shadow: var(--shadow-lift), inset 0 1px 0 var(--glass-edge);
     padding: 24px 25px 20px;
     margin-bottom: 20px;
     backdrop-filter: none;
@@ -719,9 +737,60 @@ a.post-card {
 }
 
 a.post-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, .10),
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lift-hover),
                 inset 0 1px 0 var(--glass-edge);
+}
+
+/* ---------------------------------------------------------------- 滚动浮现
+   #52「往下滑没有弹出来的感觉」
+   {
+     曾出现：滚动只是内容往上走，卡片一直原地不动，像一张长图在推
+     根因：**参考站本身也没有这个动画**（实测滚动前后 opacity=1、transform=none，
+           它只做了 Headroom 导航栏收放）。我照着"参考站有什么"去复刻，
+           自然不会有"弹出来"这回事
+     修法：这是本项目**主动加**的效果，用 IntersectionObserver 在进入视口时
+           给卡片加上 .is-in：透明度 0→1、上移 24px→0、轻微放大 .985→1
+     为什么不纯 CSS：scroll-driven animation 兼容性还不够，
+           而且"只播一次、离开不还原"要 JS 才稳
+     降级：没有 IntersectionObserver 或 prefers-reduced-motion 时，
+           卡片保持完全可见（JS 检测后才给 body 加 .reveal-ready，
+           没加就说明没有能力，直接显示）
+   } */
+
+.reveal-ready .post-card,
+.reveal-ready .widget,
+.reveal-ready .side-nav,
+.reveal-ready .section-title {
+    opacity: 0;
+    transform: translateY(24px) scale(.985);
+    will-change: opacity, transform;
+}
+
+.is-in {
+    opacity: 1 !important;
+    transform: translateY(0) scale(1) !important;
+    transition: opacity .55s cubic-bezier(.22, .61, .36, 1),
+                transform .55s cubic-bezier(.22, .61, .36, 1),
+                box-shadow .3s ease;
+}
+
+/* 同一屏里依次进入，别一整块同时蹦出来 */
+.reveal-ready .post-card { transition-delay: 0s; }
+.reveal-ready .post-card:nth-child(2) { transition-delay: .06s; }
+.reveal-ready .post-card:nth-child(3) { transition-delay: .12s; }
+.reveal-ready .post-card:nth-child(4) { transition-delay: .18s; }
+.reveal-ready .post-card:nth-child(5) { transition-delay: .24s; }
+
+@media (prefers-reduced-motion: reduce) {
+    .reveal-ready .post-card,
+    .reveal-ready .widget,
+    .reveal-ready .side-nav,
+    .reveal-ready .section-title {
+        opacity: 1;
+        transform: none;
+    }
+    .is-in { transition: none; }
 }
 
 /* 卡片标题：25px / 400 / 字距 .5px / rgb(137,152,235) —— 全部量来的 */
@@ -970,8 +1039,6 @@ a.tag:hover { background: rgba(var(--theme-rgb), .35); color: #fff; }
     }
 
     .content { order: 1; width: 100%; }
-
-    .mascot { display: none; }
 }
 
 @media (max-width: 560px) {

@@ -295,7 +295,6 @@ $(["a,b", "c"])       → 被切成 3 个元素</code></pre>
 
 </div>
 
-<div class="mascot" title="炑">炑</div>
 
 <footer class="footer">
     © 2026 pyPython
@@ -328,6 +327,33 @@ document.getElementById('themeBtn').addEventListener('click', function () {
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
+})();
+
+/* 滚动浮现：卡片进入视口时淡入并上浮（本项目自己加的，#52）。
+   要点：
+     1. 先判断能力，再给 body 加 .reveal-ready —— 顺序反了的话，
+        没有 IntersectionObserver 的浏览器会让卡片永远停在 opacity:0；
+     2. 只播一次（unobserve），往下翻回去不再重播，避免来回闪；
+     3. 首屏那批在加载时就该可见，所以初始化时立刻扫一遍。 */
+(function () {
+    if (!('IntersectionObserver' in window)) return;
+    var reduce = window.matchMedia &&
+                 window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+
+    document.body.classList.add('reveal-ready');
+
+    var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+            if (!e.isIntersecting) return;
+            e.target.classList.add('is-in');
+            io.unobserve(e.target);
+        });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.08 });
+
+    var nodes = document.querySelectorAll(
+        '.post-card, .widget, .side-nav, .section-title');
+    Array.prototype.forEach.call(nodes, function (n) { io.observe(n); });
 })();
 </script>
 
