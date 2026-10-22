@@ -80,9 +80,21 @@ def main():
     check(".post-card {" in code and "--shadow-lift" in code,
           "卡片真的用了浮起档变量")
 
-    # 左下角装饰球必须不存在（#50）
-    check("mascot" not in code and "mascot" not in src,
-          "没有左下角头像球（mascot 已删除）")
+    # 左下角头像（#50 → #54）：必须是站主本人头像的**本地文件**，不是造出来的装饰
+    layout_src = open(os.path.join(ROOT, "parts", "layout.html"),
+                      encoding="utf-8").read()
+    check("mascot" not in code and "mascot" not in layout_src,
+          "旧的「炑」字装饰球已彻底移除")
+    check("avatar-fab" in code and "avatar-fab" in layout_src,
+          "左下角头像用 .avatar-fab（CSS 与布局都接上了）")
+    check('assets/img/avatar-github.jpg' in layout_src,
+          "头像指向本地 avatar-github.jpg（不引外链）")
+    check(os.path.exists(os.path.join(ROOT, "assets", "img",
+                                      "avatar-github.jpg")),
+          "头像文件真的在 assets/img/ 里")
+    check('src="https://github.com' not in layout_src
+          and "avatars.githubusercontent" not in layout_src,
+          "布局里没有 GitHub 头像外链（断网不会变裂图）")
 
     # 滚动浮现（#52）
     layout = open(os.path.join(ROOT, "parts", "layout.html"),
@@ -153,7 +165,13 @@ def main():
           return {title: g('.cover-title'), sub: g('.cover-sub'),
                   card: g('.post-card'), ptitle: g('.post-card .post-title'),
                   widget: g('.widget'), tag: g('.tag'), nav: g('.navbar'), footer: g('.footer'),
-                  section: g('.section-title'),
+                  section: g('.section-title'), fab: g('.avatar-fab'),
+                  fabImg: (() => { const i = document.querySelector('.avatar-fab img');
+                    if (!i) return null;
+                    const r = i.getBoundingClientRect();
+                    return {w: Math.round(r.width), h: Math.round(r.height),
+                            src: i.getAttribute('src'),
+                            complete: i.complete, natural: i.naturalWidth}; })(),
                   loaded: Array.from(document.fonts).map(f => f.family + ':' + f.status)};
         })()
         """)
@@ -204,6 +222,16 @@ def main():
             sec = norm(got["section"]["color"] or "")
             check(sec is not None and sec[0] + sec[1] + sec[2] < 300,
                   "浅色分组标题是深色（亮度 < 300）", str(got["section"]["color"]))
+
+            # #54：左下角是站主本人的头像，且真的加载成功
+            check(got.get("fab") is not None, "页面里有 .avatar-fab 头像")
+            img = got.get("fabImg") or {}
+            check(img.get("natural", 0) > 0 and img.get("complete"),
+                  "头像图片真的加载成功（不是裂图）", str(img))
+            check(img.get("w", 0) >= 40 and img.get("h", 0) >= 40,
+                  "头像渲染尺寸足够（>= 40px）", str(img))
+            check("avatar-github.jpg" in (img.get("src") or ""),
+                  "头像用的是本地文件", img.get("src"))
     except Exception as exc:
         check(False, "渲染层探针跑通", repr(exc)[:200])
 
