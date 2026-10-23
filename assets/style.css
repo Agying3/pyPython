@@ -100,9 +100,6 @@
                          0 8px 20px rgba(0, 0, 0, .09),
                          0 1px 2px rgba(0, 0, 0, .06);
 
-    /* 左下角浮动头像尺寸（#54）：56px 时缩略图里认不出人物，实测 68px 才够看 */
-    --avatar-size: 68px;
-
     --bg-body: #f4f6f9;
     --text: #364863;                           /* 浅色底上的正文，参考站 --text */
     --text-sub: rgba(54, 72, 99, .62);
@@ -633,20 +630,32 @@ body.has-cover .layout {
     -webkit-backdrop-filter: none;
 }
 
+/* 站点概览的头像：站主本人的 GitHub 头像（#55）。
+   #55「我是说那个「炑」的头像啊」
+   {
+     曾出现：用户说"头像用我 GitHub 的头像"，我做成了左下角常驻浮动头像，
+             左栏「站点概览」里那个「炑」字仍然还在
+     根因：我把"头像"理解成"页面上缺一个头像"，而用户指的是**已有的那个**
+           —— 左栏概览卡片里写着「炑」的圆块。改东西之前应当先问
+           "页面上现在有几个头像、指的是哪一个"，而不是自己挑一个位置新加
+     修法：左下角浮动块整块删掉；这个 .avatar 从"渐变底 + 炑字"改成装图片
+     教训：**用户说"那个 X"的时候，X 是页面上已经存在的东西。**
+           先定位他指的那一个，再改；不要新增一个你以为的"那个"。
+   }
+
+   {图：assets/img/avatar-github.jpg，从 GitHub（Agying3）下载后随站发布。
+     不引外链的理由同 #54：零依赖、断网不裂图、少一次跨域跳转。
+     换头像覆盖这一个文件即可} */
 .avatar {
+    display: block;
     width: 66px;
     height: 66px;
     border-radius: 50%;
     margin: 0 auto 10px;
-    background: linear-gradient(135deg, var(--theme), #8a9bf0);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--font-head);
-    font-size: 28px;
-    font-weight: 400;
-    box-shadow: 0 4px 14px rgba(var(--theme-rgb), .4);
+    object-fit: cover;
+    background: rgba(255, 255, 255, .6);   /* 图片未加载时的兜底底片 */
+    border: 2px solid rgba(255, 255, 255, .85);
+    box-shadow: 0 4px 14px rgba(var(--theme-rgb), .28);
 }
 
 .overview-name {
@@ -685,57 +694,6 @@ body.has-cover .layout {
     font-weight: 600;
     color: var(--text);
     line-height: 1.3;
-}
-
-/* 左下角浮动头像：站主本人的 GitHub 头像（Agying3）。
-   #50「左下角怎么又有个人头像」→ #54「头像用我 GitHub 的头像呀」
-   {
-     #50 那次的错误是"凭印象造了一个装饰物"（紫色「炑」字球）。
-     参考站那个位置是 Live2D 看板娘，不是头像；但那不代表这里不能有人像 ——
-     用户要的是**他自己的**头像，这是明确指令，不是我的臆想
-     做法：把 GitHub 头像下载到 assets/img/avatar-github.jpg 随站发布。
-     为什么不直接 <img src="https://github.com/Agying3.png">：
-       1) ADR-0001 零第三方依赖；2) 断网/被墙时外链会变成裂图，
-          而这是常驻装饰，裂了就一直裂着；
-       3) GitHub 头像接口会 302 到 avatars.githubusercontent.com，
-          多一次跨域跳转，慢
-     要换头像：覆盖这一个文件即可，CSS 不用动
-   } */
-.avatar-fab {
-    position: fixed;
-    left: 18px;
-    bottom: 18px;
-    z-index: 90;
-    display: block;
-    width: var(--avatar-size);
-    height: var(--avatar-size);
-    border-radius: 50%;
-    overflow: hidden;
-    border: 2px solid rgba(255, 255, 255, .9);
-    box-shadow: var(--shadow-lift);
-    transition: transform .3s ease, box-shadow .3s ease;
-}
-
-.avatar-fab img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.avatar-fab:hover {
-    transform: translateY(-3px) scale(1.04);
-    box-shadow: var(--shadow-lift-hover);
-}
-
-.avatar-fab:focus-visible {
-    outline: 2px solid var(--theme);
-    outline-offset: 3px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .avatar-fab { transition: none; }
-    .avatar-fab:hover { transform: none; }
 }
 
 /* ---------------------------------------------------------------- 文章卡片
@@ -1085,12 +1043,7 @@ a.tag:hover { background: rgba(var(--theme-rgb), .35); color: #fff; }
 }
 
 @media (max-width: 560px) {
-    :root {
-        --hero-size: 34px;
-        /* 手机上 68px 的常驻头像会压住正文，缩到 44px 并贴近边角 */
-        --avatar-size: 44px;
-    }
-    .avatar-fab { left: 10px; bottom: 10px; }
+    :root { --hero-size: 34px; }
     .navbar { padding: 0 10px; }
     .navbar .brand .name { display: none; }
     .navbar .nav-links a { padding: 12px 10px; font-size: 14px; }
