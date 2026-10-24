@@ -76,4 +76,5 @@ PYPYTHON_KEYWORDS = frozenset({
     "break", "continue",
     "and", "or", "not",
     "未知",
+    "已观测",
 })

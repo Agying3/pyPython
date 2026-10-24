@@ -110,6 +110,7 @@ PYPYTHON_KEYWORDS = [
     "break", "continue",
     "and", "or", "not",
     "未知",
+    "已观测",
 ]
 
 # 运算符。`~` 和 `·` 是本语言特有的比较符，必须染色。
@@ -384,6 +385,7 @@ COMPLETION_SKELETONS = [
     "break", "continue",
     "and", "or", "not",
     "未知",
+    "已观测",
     "$(",
     "\u300c", "\u300d",
     "{", "}", ":",

@@ -54,6 +54,7 @@ PYPYTHON_KEYWORDS = [
     "break", "continue",
     "and", "or", "not",
     "未知",
+    "已观测",
 ]
 
 # pyPython 没有内置函数，也没有类。这个列表**刻意留空**——

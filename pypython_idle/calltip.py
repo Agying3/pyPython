@@ -267,6 +267,19 @@ SYNTAX_CARDS = {
         "\n"
         "  x\u300cy or \u9ed8\u8ba4\u503c\u300d   \u5e38\u7528\u5199\u6cd5"
     ),
+    "observed": (
+        "pyPython 观测状态查询\n"
+        "\n"
+        "  已观测(x)\n"
+        "\n"
+        "只回答 x 是否已经脱离 MAYBE，不判断 x 的真假。\n"
+        "\n"
+        "  x「未知」\n"
+        "  $(已观测(x))    输出 0 ⟨FALSE⟩\n"
+        "  $(已观测(1))    输出 3 ⟨TRUE⟩\n"
+        "\n"
+        "查询不会解析未知值，也不会改变 x 的污染路径。"
+    ),
     "unknown": (
         "pyPython \u7b2c\u4e09\u6001\uff1a\u672a\u77e5\n"
         "\n"

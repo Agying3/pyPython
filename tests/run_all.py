@@ -32,6 +32,8 @@ SUITES = [
     ("test_ide_v3.py", "IDE 第三版：新关键字高亮 / 补全 / 卡片 / 缩进边界"),
     ("test_v4_three_valued.py",
      "第四版：三值逻辑真值表 / 未知传染 / 静默观测账本 / 真溯源"),
+    ("test_v5_observed.py",
+     "第五版：已观测(x) 状态查询 / 查询纯性 / 语法边界"),
     ("test_wiki_examples.py",
      "文档回归：wiki/ 里每个可执行例子都真的跑一遍"),
 ]
