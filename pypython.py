@@ -1241,6 +1241,9 @@ KEYWORDS = {
     # 约束：**绝不进 STATEMENT_KEYWORDS**。它不能开一条语句，
     # 加进去会让 `if 未知` 里的 `未知` 被当成新语句的开头。
     "未知": "KW_UNKNOWN",
+    # 第五版：`已观测(x)` 查询值是否已经脱离 MAYBE。
+    # 它是表达式值，不是语句，所以不进入 STATEMENT_KEYWORDS。
+    "已观测": "KW_OBSERVED",
 }
 
 # 单字符符号集合。
@@ -1809,6 +1812,18 @@ class UnknownNode(Node):
 
     def __init__(self, line, column):
         Node.__init__(self, line, column)
+
+
+class ObservedNode(Node):
+    """观测状态查询：`已观测(x)`。
+
+    这是元层查询，不把 x 的真假投影成结果：它只报告 x 是否仍是
+    `MAYBE_UNKNOWN`。结果本身总是确定的，因此不继承 x 的污染标记。
+    """
+
+    def __init__(self, operand, line, column):
+        Node.__init__(self, line, column)
+        self.operand = operand
 
 
 class StringNode(Node):
@@ -2741,6 +2756,29 @@ class Parser:
             node = IdentNode(env.lexeme, env.line, env.column)
             node.reify()
             self.book.mint("解析:self 节点")
+            self.last_atom_was_paren = False
+            return node
+
+        if env.kind == "KW_OBSERVED":
+            # 第五版：`已观测(x)` 是元层查询，不判断 x 的真假，
+            # 只判断 x 这一层是否已经脱离 MAYBE。
+            open_env = self._bump()
+            if not (self._is("SYMBOL") and self._cur().lexeme == "("):
+                self._fail("已观测 后面必须跟一个括号表达式")
+            self._bump()
+            self.book.mint("解析:已观测开括号")
+            self.paren_depth = self.paren_depth + 1
+            operand = self._l11()
+            self.paren_depth = self.paren_depth - 1
+            if not (self._is("SYMBOL") and self._cur().lexeme == ")"):
+                self._fail(
+                    "已观测 的括号没有闭合（从第 %d 行第 %d 列开始）"
+                    % (open_env.line, open_env.column)
+                )
+            self._bump()
+            self.book.mint("解析:已观测闭括号")
+            node = ObservedNode(operand, env.line, env.column)
+            node.reify()
             self.last_atom_was_paren = False
             return node
 
@@ -5247,6 +5285,8 @@ class Interpreter:
         # 第四版：三值逻辑的第三态
         if isinstance(node, UnknownNode):
             return self._eval_unknown(node)
+        if isinstance(node, ObservedNode):
+            return self._eval_observed(node)
 
         self.collapse("未知表达式节点 " + type(node).__name__, node)
 
@@ -5264,6 +5304,19 @@ class Interpreter:
         self.book.mint("解释:未知态")
         state = tri_from_value(PyPyValue(MAYBE_UNKNOWN))
         return PyPyValue(state)
+
+    def _eval_observed(self, node):
+        """求值 `已观测(x)`：只查询状态，不解析未知值。
+
+        `MAYBE` 表示这一层尚未观测，因此返回 FALSE；其余值都已经
+        有确定的外层表示，返回 TRUE。这个判断问的是“是否有信息”，
+        不是“值为真还是假”，所以结果不会是 MAYBE，也不继承 taint。
+        """
+        self.book.mint("解释:已观测查询")
+        value = self._evaluate(node.operand)
+        if value.raw == MAYBE_UNKNOWN:
+            return PyPyValue(0)
+        return PyPyValue(3)
 
     def note_unknown_spread(self, node, where):
         """往账本记一笔"未知传染到了某某运算"。
